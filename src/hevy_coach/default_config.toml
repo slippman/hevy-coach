@@ -1,0 +1,138 @@
+[routines]
+names = ["PF:Chest & Arms", "PF: Back & Arms"]
+
+[workouts."PF:Chest & Arms"]
+display_name = "PF: Chest & Arms"
+exercise_order = [
+  "Bench Press (Dumbbell)",
+  "Seated Cable Row - V Grip (Cable)",
+  "Shoulder Press (Machine Plates)",
+  "Cable Fly Crossovers",
+  "Lateral Raise (Dumbbell)",
+  "Bicep Curl (Dumbbell)",
+  "Triceps Pushdown",
+  "Crunch (Machine)",
+]
+warmup_exercises = [
+  "Bench Press (Dumbbell)",
+  "Seated Cable Row - V Grip (Cable)",
+  "Shoulder Press (Machine Plates)",
+]
+
+[workouts."PF: Back & Arms"]
+display_name = "PF: Back & Arms"
+aliases = ["PF:Back & Arms", "PF:Back& Arms"]
+exercise_order = [
+  "Incline Bench Press (Dumbbell)",
+  "Lat Pulldown",
+  "Rear Delt Reverse Fly (Machine)",
+  "Hammer Curl (Dumbbell)",
+  "Skullcrusher (Dumbbell)",
+  "Crunch (Machine)",
+  "Back Extension (Machine)",
+]
+warmup_exercises = [
+  "Incline Bench Press (Dumbbell)",
+  "Lat Pulldown",
+  "Skullcrusher (Dumbbell)",
+]
+
+[exercises."Incline Bench Press (Dumbbell)"]
+display_name = "Incline DB Bench"
+aliases = ["Incline DB Bench", "Incline Bench Press (Dumbbell)"]
+sets = 3
+rep_range = [6, 8]
+increment = 5
+
+[exercises."Lat Pulldown"]
+display_name = "Lat Pulldown"
+aliases = ["Lat Pulldown (Cable)", "Lat Pulldown"]
+sets = 3
+rep_range = [8, 10]
+increment = 10
+
+[exercises."Rear Delt Reverse Fly (Machine)"]
+display_name = "Rear Delt Fly"
+aliases = ["Rear Delt Reverse Fly (Machine)", "Rear Delt Fly"]
+sets = 3
+rep_range = [10, 12]
+increment = 5
+
+[exercises."Hammer Curl (Dumbbell)"]
+display_name = "Hammer Curl"
+aliases = ["Hammer Curl (Dumbbell)", "Hammer Curl"]
+sets = 3
+rep_range = [8, 10]
+increment = 5
+
+[exercises."Skullcrusher (Dumbbell)"]
+display_name = "DB Skullcrusher"
+aliases = ["Skullcrusher (Dumbbell)", "Dumbbell Skullcrusher"]
+sets = 2
+rep_range = [8, 10]
+increment = 5
+
+[exercises."Back Extension (Machine)"]
+display_name = "Back Extension"
+aliases = ["Back Extension (Machine)", "Back Extension"]
+sets = 3
+rep_range = [10, 12]
+increment = 10
+
+[exercises."Bench Press (Dumbbell)"]
+display_name = "Bench Press"
+aliases = ["DB Bench", "Dumbbell Bench Press", "Bench Press (Dumbbell)"]
+sets = 3
+rep_range = [6, 8]
+increment = 5
+increase_requires_confirmation = true
+
+[exercises."Seated Cable Row - V Grip (Cable)"]
+display_name = "Seated Cable Row"
+aliases = ["Cable Row V Grip", "Seated Cable Row", "Seated Cable Row - Bar Grip"]
+sets = 4
+rep_range = [8, 10]
+increment = 10
+
+[exercises."Shoulder Press (Machine Plates)"]
+display_name = "Shoulder Press"
+aliases = ["Machine Shoulder Press", "Shoulder Press Machine"]
+sets = 3
+rep_range = [6, 8]
+increment = 5
+
+[exercises."Cable Fly Crossovers"]
+display_name = "Cable Fly"
+aliases = ["Cable Fly", "Cable Crossover"]
+sets = 3
+rep_range = [10, 12]
+increment = 5
+
+[exercises."Lateral Raise (Dumbbell)"]
+display_name = "Lateral Raise"
+aliases = ["Lateral Raise", "Dumbbell Lateral Raise"]
+sets = 3
+rep_range = [10, 12]
+increment = 5
+
+[exercises."Bicep Curl (Dumbbell)"]
+display_name = "DB Curl"
+aliases = ["DB Curl", "Dumbbell Curl", "Alternating Dumbbell Curl"]
+sets = 3
+rep_range = [8, 10]
+increment = 5
+
+[exercises."Triceps Pushdown"]
+display_name = "Triceps Pushdown"
+aliases = ["Tricep Pushdown", "Cable Triceps Pushdown", "Triceps Rope Pushdown"]
+sets = 3
+rep_range = [8, 10]
+increment = 5
+
+[exercises."Crunch (Machine)"]
+display_name = "Crunch Machine"
+aliases = ["Ab Crunch Machine", "Machine Crunch", "Abdominal Crunch Machine"]
+sets = 3
+rep_range = [10, 12]
+increment = 10
+starting_weight = 90

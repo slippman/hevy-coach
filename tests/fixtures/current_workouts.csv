@@ -1,0 +1,26 @@
+title,start_time,exercise_title,set_index,set_type,weight_lbs,reps,rpe
+PF:Chest & Arms,2024-01-08 18:00:00,Dumbbell Bench Press,0,warmup,20,10,5
+PF:Chest & Arms,2024-01-08 18:00:00,Dumbbell Bench Press,1,normal,50,8,7
+PF:Chest & Arms,2024-01-08 18:00:00,Dumbbell Bench Press,2,normal,50,8,7.5
+PF:Chest & Arms,2024-01-08 18:00:00,Dumbbell Bench Press,3,normal,50,8,8
+PF:Chest & Arms,2024-01-08 18:00:00,Dumbbell Bench Press,4,normal,50,8,8.5
+PF:Back & Arms,2024-01-10 18:00:00,Seated Cable Row,1,normal,110,10,7
+PF:Back & Arms,2024-01-10 18:00:00,Seated Cable Row,2,normal,110,10,7.5
+PF:Back & Arms,2024-01-10 18:00:00,Seated Cable Row,3,normal,110,10,8
+PF:Back & Arms,2024-01-10 18:00:00,Seated Cable Row,4,normal,110,8,8.5
+PF:Chest & Arms,2024-01-08 18:00:00,Shoulder Press Machine,1,normal,75,8,8
+PF:Chest & Arms,2024-01-08 18:00:00,Shoulder Press Machine,2,normal,75,8,8.5
+PF:Chest & Arms,2024-01-08 18:00:00,Shoulder Press Machine,3,normal,75,7,9.5
+PF:Chest & Arms,2024-01-08 18:00:00,Cable Fly,1,normal,15,10,7
+PF:Chest & Arms,2024-01-08 18:00:00,Cable Fly,2,normal,15,10,7.5
+PF:Chest & Arms,2024-01-08 18:00:00,Cable Fly,3,normal,15,10,8
+PF:Chest & Arms,2024-01-08 18:00:00,Lateral Raise,1,normal,15,10,8
+PF:Chest & Arms,2024-01-08 18:00:00,Lateral Raise,2,normal,15,10,8
+PF:Chest & Arms,2024-01-08 18:00:00,Lateral Raise,3,normal,15,10,8.5
+PF:Back & Arms,2024-01-10 18:00:00,Dumbbell Curl,1,normal,30,10,8
+PF:Back & Arms,2024-01-10 18:00:00,Dumbbell Curl,2,normal,30,8,8.5
+PF:Back & Arms,2024-01-10 18:00:00,Dumbbell Curl,3,normal,30,6,9
+PF:Chest & Arms,2024-01-08 18:00:00,Triceps Pushdown,1,normal,35,12,7.5
+PF:Chest & Arms,2024-01-08 18:00:00,Triceps Pushdown,2,normal,35,12,8
+PF:Chest & Arms,2024-01-08 18:00:00,Triceps Pushdown,3,normal,35,12,8.5
+Other Routine,2024-01-11 18:00:00,Dumbbell Bench Press,1,normal,95,12,6
