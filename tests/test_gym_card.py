@@ -1,5 +1,6 @@
 import json
 import subprocess
+from datetime import UTC, date, datetime
 from pathlib import Path
 from unittest.mock import patch
 
@@ -8,7 +9,7 @@ from click.testing import CliRunner
 
 from hevy_coach.cli import main
 from hevy_coach.config import load_config, load_routine_policies
-from hevy_coach.gym_card import build_card, render_card
+from hevy_coach.gym_card import build_card, freshness_line, render_card
 from hevy_coach.importer import import_csv
 from hevy_coach.query import records_for_workout
 from hevy_coach.selector import choose_workout
@@ -190,3 +191,45 @@ def test_card_order_and_configured_warmups(tmp_path: Path) -> None:
     assert "Bench Press\nSET   LBS   REPS\n1     20    10\n2     50    8" in rendered
     assert "Cable Fly\nSET   LBS   REPS\n1     15" in rendered
     assert "Warm-up:" not in rendered
+
+
+def test_freshness_line_warns_only_after_seven_days() -> None:
+    source = date(2026, 8, 4)
+
+    at_seven, seven_is_stale = freshness_line(source, date(2026, 8, 11))
+    at_eight, eight_is_stale = freshness_line(source, date(2026, 8, 12))
+
+    assert at_seven == "Based on: Aug 4, 2026 (7 days ago)"
+    assert not seven_is_stale
+    assert at_eight == "Based on: Aug 4, 2026 (8 days ago)"
+    assert eight_is_stale
+
+
+@patch("hevy_coach.cli.datetime")
+@patch("hevy_coach.cli.clipboard.copy")
+def test_card_uses_selected_routine_date_and_surfaces_staleness_in_clipboard_mode(
+    mock_copy, mock_date, tmp_path: Path
+) -> None:
+    mock_date.now.return_value = datetime(2026, 8, 12, tzinfo=UTC)
+    source = tmp_path / "workouts.csv"
+    source.write_text(
+        "title,start_time,exercise_title,set_index,set_type,weight_lbs,reps,rpe\n"
+        "PF:Back& Arms,2026-08-04 18:00:00,Crunch (Machine),0,normal,90,10,7\n"
+        "PF:Back& Arms,2026-08-04 18:00:00,Crunch (Machine),1,normal,90,10,7\n"
+        "PF:Back& Arms,2026-08-04 18:00:00,Crunch (Machine),2,normal,90,10,7\n"
+        "PF:Chest & Arms,2026-08-10 18:00:00,Dumbbell Bench Press,0,normal,45,8,8\n",
+        encoding="utf-8",
+    )
+    db = tmp_path / "hevy.db"
+    with database(db) as connection:
+        import_csv(connection, source, db.parent / "imports")
+
+    result = CliRunner().invoke(
+        main, ["gym-card", "--workout", "back", "--clipboard", "--db", str(db)]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert result.stdout == ""
+    assert 'Copied "PF: Back & Arms" gym card to clipboard.' in result.stderr
+    assert "Latest Hevy export may not be imported." in result.stderr
+    assert "⚠ Based on: Aug 4, 2026 (8 days ago)" in mock_copy.call_args.args[0]

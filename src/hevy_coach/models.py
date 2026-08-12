@@ -66,3 +66,7 @@ class RoutinePolicy:
     exercises: tuple[str, ...]
     warmup_exercises: tuple[str, ...] = ()
     aliases: tuple[str, ...] = ()
+    warmup_set_counts: tuple[tuple[str, int], ...] = ()
+
+    def warmup_set_count(self, exercise: str) -> int:
+        return dict(self.warmup_set_counts).get(exercise, 0)

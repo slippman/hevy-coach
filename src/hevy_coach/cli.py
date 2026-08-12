@@ -6,6 +6,7 @@ import json
 import shutil
 import subprocess
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 import click
@@ -13,13 +14,15 @@ import click
 from .clipboard import Clipboard
 from .coach import working_sets
 from .config import load_config, load_routine_policies, resolve_routine
-from .gym_card import build_card, card_json, render_card, unknown_routine_exercises
+from .gym_card import build_card, card_json, freshness_line, render_card, unknown_routine_exercises
 from .importer import import_csv
 from .persistent_report import dated_filename, markdown, report_payload
 from .query import (
     all_records,
     exercise_history,
+    latest_imported_at,
     latest_workout_records,
+    latest_workout_summary,
     recent_workouts,
     records_for_workout,
     records_for_workouts,
@@ -94,7 +97,12 @@ def report(latest: bool, clipboard: bool, as_json: bool, config: Path | None, db
                 & latest_names
             ]
             history_records = all_records(connection)
-        payload = report_payload(latest_records, routine_policies, history_records=history_records)
+        payload = report_payload(
+            latest_records,
+            routine_policies,
+            history_records=history_records,
+            routine=routine,
+        )
     rendered = markdown(payload)
     reports = db.parent / "reports"
     reports.mkdir(parents=True, exist_ok=True)
@@ -185,9 +193,16 @@ def gym_card(
     if not items:
         raise click.ClickException(f"No configured strength exercises found for {selected!r}.")
     unknown = unknown_routine_exercises(routine, records, policies)
-    rendered = render_card(title, items)
+    source_date = max(record.started_at for record in records).date()
+    today = datetime.now(UTC).date()
+    _, stale = freshness_line(source_date, today)
+    rendered = render_card(title, items, source_date=source_date, today=today)
     if as_json:
-        click.echo(json.dumps(card_json(title, items, unknown), indent=2))
+        payload = card_json(title, items, unknown)
+        payload["source_workout_date"] = source_date.isoformat()
+        payload["source_workout_age_days"] = (today - source_date).days
+        payload["source_workout_stale"] = stale
+        click.echo(json.dumps(payload, indent=2))
     elif copy_to_clipboard:
         try:
             clipboard.copy(rendered)
@@ -201,6 +216,8 @@ def gym_card(
             f"Review routine configuration; skipped unknown exercises: {', '.join(unknown)}.",
             err=True,
         )
+    if stale and not as_json:
+        click.echo("Latest Hevy export may not be imported.", err=True)
 
 
 def _show_exercise_history(exercise: str, limit: int, db: Path) -> None:
@@ -316,9 +333,25 @@ def status(db: Path) -> None:
         workouts = connection.execute("SELECT COUNT(*) FROM workouts").fetchone()[0]
         exercises = connection.execute("SELECT COUNT(*) FROM exercises").fetchone()[0]
         sets = connection.execute("SELECT COUNT(*) FROM sets").fetchone()[0]
-    click.echo(
-        f"Database: {db}\nImports: {imports}\nWorkouts: {workouts}\nExercises: {exercises}\nSets: {sets}"
-    )
+        latest_workout = latest_workout_summary(connection)
+        latest_import = latest_imported_at(connection)
+    lines = [
+        f"Database: {db}",
+        f"Imports: {imports}",
+        f"Workouts: {workouts}",
+        f"Exercises: {exercises}",
+        f"Sets: {sets}",
+    ]
+    if latest_workout:
+        lines.extend(
+            [
+                "",
+                f"Latest workout: {latest_workout.started_at.date().isoformat()} — {latest_workout.title}",
+            ]
+        )
+    if latest_import:
+        lines.append(f"Latest import: {latest_import.date().isoformat()}")
+    click.echo("\n".join(lines))
 
 
 @main.command()

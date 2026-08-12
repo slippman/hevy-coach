@@ -59,17 +59,19 @@ def test_report_scopes_recommendations_to_latest_routine_and_refreshes_progressi
     baseline.write_text(
         "title,start_time,exercise_title,set_index,set_type,weight_lbs,reps,rpe\n"
         "PF: Back & Arms,2024-01-01 18:00:00,Incline Bench Press (Dumbbell),0,normal,40,8,7\n"
-        "PF:Chest & Arms,2024-01-02 18:00:00,Dumbbell Bench Press,0,normal,45,8,8\n"
+        "PF:Chest & Arms,2024-01-02 18:00:00,Dumbbell Bench Press,0,warmup,20,8,5\n"
         "PF:Chest & Arms,2024-01-02 18:00:00,Dumbbell Bench Press,1,normal,45,8,8\n"
-        "PF:Chest & Arms,2024-01-02 18:00:00,Dumbbell Bench Press,2,normal,45,8,8\n",
+        "PF:Chest & Arms,2024-01-02 18:00:00,Dumbbell Bench Press,2,normal,45,8,8\n"
+        "PF:Chest & Arms,2024-01-02 18:00:00,Dumbbell Bench Press,3,normal,45,8,8\n",
         encoding="utf-8",
     )
     latest = tmp_path / "latest.csv"
     latest.write_text(
         "title,start_time,exercise_title,set_index,set_type,weight_lbs,reps,rpe\n"
-        "PF:Chest & Arms,2024-01-04 18:00:00,Dumbbell Bench Press,0,normal,45,9,8\n"
+        "PF:Chest & Arms,2024-01-04 18:00:00,Dumbbell Bench Press,0,warmup,20,8,5\n"
         "PF:Chest & Arms,2024-01-04 18:00:00,Dumbbell Bench Press,1,normal,45,9,8\n"
-        "PF:Chest & Arms,2024-01-04 18:00:00,Dumbbell Bench Press,2,normal,45,9,8\n",
+        "PF:Chest & Arms,2024-01-04 18:00:00,Dumbbell Bench Press,2,normal,45,9,8\n"
+        "PF:Chest & Arms,2024-01-04 18:00:00,Dumbbell Bench Press,3,normal,45,9,8\n",
         encoding="utf-8",
     )
 
@@ -107,3 +109,24 @@ def test_report_copies_markdown_to_clipboard(mock_run, tmp_path: Path) -> None:
     assert result.exit_code == 0
     assert mock_run.called
     assert mock_run.call_args.args[0] == ["pbcopy"]
+
+
+def test_status_shows_latest_workout_and_import(tmp_path: Path) -> None:
+    runner = CliRunner()
+    db = tmp_path / "hevy.db"
+    assert runner.invoke(main, ["import", str(FIXTURE), "--db", str(db)]).exit_code == 0
+
+    result = runner.invoke(main, ["status", "--db", str(db)])
+
+    assert result.exit_code == 0, result.output
+    assert "Latest workout: 2024-01-11 — Other Routine" in result.output
+    assert "Latest import:" in result.output
+
+
+def test_status_handles_an_empty_database(tmp_path: Path) -> None:
+    result = CliRunner().invoke(main, ["status", "--db", str(tmp_path / "hevy.db")])
+
+    assert result.exit_code == 0
+    assert "Workouts: 0" in result.output
+    assert "Latest workout:" not in result.output
+    assert "Latest import:" not in result.output

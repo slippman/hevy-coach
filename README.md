@@ -92,6 +92,11 @@ conservative baseline; normal double progression begins after the second session
 in a known routine configuration are skipped and reported for review rather than added
 automatically.
 
+Each card includes the date of the stored workout it is based on. A source workout older than
+seven calendar days shows a warning that the latest Hevy export may not have been imported; this
+does not prevent card generation. Warm-ups are excluded only when Hevy marks them explicitly or
+when the routine config specifies a warm-up count—load changes alone never create a warm-up.
+
 For exports that label all ramp-up sets `normal`, the report conservatively treats early excess
 sets as ramp-up sets when there are more normal sets than an exercise’s configured working-set
 count. Explicit Hevy warm-up labels always take precedence.
@@ -113,6 +118,9 @@ exercise counts, and set counts.
 `exercise history` displays prior sessions for one exercise, including reps, last RPE, total reps,
 and meaningful weighted volume. Distance- and duration-only work remains stored without invented
 volume metrics.
+
+`status` also shows the newest stored workout and the most recent successful import date, making
+it a quick check that your local history is current before generating a gym card.
 
 ## Backup and restore
 

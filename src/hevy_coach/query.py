@@ -79,6 +79,30 @@ def workout_titles(connection: sqlite3.Connection) -> list[str]:
     ]
 
 
+def latest_workout_summary(connection: sqlite3.Connection) -> WorkoutSummary | None:
+    row = connection.execute(
+        """SELECT w.title, w.start_time, w.duration_seconds, COUNT(DISTINCT e.id) AS exercise_count,
+        COUNT(s.id) AS set_count FROM workouts w
+        LEFT JOIN exercises e ON e.workout_id = w.id
+        LEFT JOIN sets s ON s.exercise_id = e.id
+        GROUP BY w.id ORDER BY w.start_time DESC LIMIT 1"""
+    ).fetchone()
+    if row is None:
+        return None
+    return WorkoutSummary(
+        title=row["title"],
+        started_at=datetime.fromisoformat(row["start_time"]),
+        duration_seconds=row["duration_seconds"],
+        exercise_count=row["exercise_count"],
+        set_count=row["set_count"],
+    )
+
+
+def latest_imported_at(connection: sqlite3.Connection) -> datetime | None:
+    value = connection.execute("SELECT MAX(imported_at) FROM imports").fetchone()[0]
+    return datetime.fromisoformat(value) if value else None
+
+
 def recent_workouts(connection: sqlite3.Connection, limit: int) -> list[WorkoutSummary]:
     rows = connection.execute(
         """SELECT w.title, w.start_time, w.duration_seconds, COUNT(DISTINCT e.id) AS exercise_count,

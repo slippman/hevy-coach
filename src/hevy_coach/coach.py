@@ -15,7 +15,9 @@ def _fmt_weight(weight: float) -> str:
     return str(int(value)) if value.is_integer() else f"{value:g}"
 
 
-def _latest_working_sets(records: Iterable[SetRecord], policy: ExercisePolicy) -> list[SetRecord]:
+def _latest_working_sets(
+    records: Iterable[SetRecord], policy: ExercisePolicy, warmup_set_count: int = 0
+) -> list[SetRecord]:
     matches = [record for record in records if _matches(record.exercise, policy)]
     if not matches:
         return []
@@ -26,6 +28,7 @@ def _latest_working_sets(records: Iterable[SetRecord], policy: ExercisePolicy) -
             key=lambda record: record.set_index,
         ),
         policy.sets,
+        warmup_set_count,
     )
 
 
@@ -33,17 +36,15 @@ def _session_count(records: Iterable[SetRecord], policy: ExercisePolicy) -> int:
     return len({record.started_at for record in records if _matches(record.exercise, policy)})
 
 
-def working_sets(records: list[SetRecord], prescribed_sets: int | None = None) -> list[SetRecord]:
-    """Exclude marked warm-ups; for excess unmarked sets, retain the final prescribed sets.
-
-    Hevy exports sometimes label all sets ``normal``. The latter rule is a transparent,
-    conservative fallback that treats early ramp-up sets as warm-ups only when there are
-    more logged normal sets than the configured prescription.
-    """
+def working_sets(
+    records: list[SetRecord], prescribed_sets: int | None = None, warmup_set_count: int = 0
+) -> list[SetRecord]:
+    """Exclude only explicit or configured warm-ups; never infer them from load changes."""
+    del prescribed_sets
+    explicit_warmups = [record for record in records if record.is_warmup]
     normal = [record for record in records if not record.is_warmup]
-    if prescribed_sets is not None and len(normal) > prescribed_sets:
-        return normal[-prescribed_sets:]
-    return normal
+    configured_unmarked_warmups = max(0, warmup_set_count - len(explicit_warmups))
+    return normal[configured_unmarked_warmups:]
 
 
 def _evidence(sets: list[SetRecord], last_rpe: float | None) -> str:
@@ -52,9 +53,11 @@ def _evidence(sets: list[SetRecord], last_rpe: float | None) -> str:
     return f"Working reps {reps}; last-set RPE {rpe}"
 
 
-def recommend_exercise(records: Iterable[SetRecord], policy: ExercisePolicy) -> Recommendation:
+def recommend_exercise(
+    records: Iterable[SetRecord], policy: ExercisePolicy, warmup_set_count: int = 0
+) -> Recommendation:
     materialized = list(records)
-    sets = _latest_working_sets(materialized, policy)
+    sets = _latest_working_sets(materialized, policy, warmup_set_count)
     history_status = "limited" if _session_count(materialized, policy) <= 1 else "established"
     if not sets:
         start = policy.starting_weight
@@ -184,10 +187,15 @@ def recommend_exercise(records: Iterable[SetRecord], policy: ExercisePolicy) -> 
 
 
 def recommend_all(
-    records: Iterable[SetRecord], policies: Iterable[ExercisePolicy]
+    records: Iterable[SetRecord],
+    policies: Iterable[ExercisePolicy],
+    warmup_set_counts: dict[str, int] | None = None,
 ) -> list[Recommendation]:
     materialized = list(records)
-    return [recommend_exercise(materialized, policy) for policy in policies]
+    counts = warmup_set_counts or {}
+    return [
+        recommend_exercise(materialized, policy, counts.get(policy.name, 0)) for policy in policies
+    ]
 
 
 def summarize_workouts(records: Iterable[SetRecord]) -> tuple[int, str]:

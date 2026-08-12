@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from dataclasses import dataclass
+from datetime import UTC, date, datetime
 
 from .coach import _matches, working_sets
 from .models import ExercisePolicy, RoutinePolicy, SetRecord
@@ -129,14 +130,15 @@ def build_card(
             <= 1
             else "established"
         )
-        selected = working_sets(matches, policy.sets)
+        warmup_set_count = routine.warmup_set_count(canonical) if routine else 0
+        selected = working_sets(matches, policy.sets, warmup_set_count)
         if not selected:
             continue
         weight = next((item.weight for item in reversed(selected) if item.weight is not None), None)
         ramp_up = [item for item in matches if item not in selected]
         warmup = None
         warmup_set = None
-        if routine and canonical in routine.warmup_exercises and ramp_up:
+        if warmup_set_count and ramp_up:
             first = ramp_up[0]
             if first.weight is not None and first.reps is not None:
                 warmup = f"{first.weight:g} lb × {first.reps}"
@@ -161,8 +163,25 @@ def build_card(
     return display, items
 
 
-def render_card(title: str, items: list[CardItem]) -> str:
+def freshness_line(source_date: date, today: date) -> tuple[str, bool]:
+    age = (today - source_date).days
+    days = "today" if age == 0 else f"{age} day{'s' if age != 1 else ''} ago"
+    return (
+        f"Based on: {source_date.strftime('%b')} {source_date.day}, {source_date.year} ({days})",
+        age > 7,
+    )
+
+
+def render_card(
+    title: str,
+    items: list[CardItem],
+    source_date: date | None = None,
+    today: date | None = None,
+) -> str:
     blocks = [title]
+    if source_date is not None:
+        freshness, stale = freshness_line(source_date, today or datetime.now(UTC).date())
+        blocks.append(("⚠ " if stale else "") + freshness)
     for item in items:
         lines = [item.exercise, "SET   LBS   REPS"]
         for planned_set in item.planned_sets:

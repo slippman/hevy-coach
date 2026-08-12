@@ -6,7 +6,7 @@ from collections import OrderedDict
 from dataclasses import asdict
 
 from .coach import recommend_all, working_sets
-from .models import ExercisePolicy, SetRecord
+from .models import ExercisePolicy, RoutinePolicy, SetRecord
 
 
 def _weight(value: float | None) -> str:
@@ -33,6 +33,7 @@ def report_payload(
     records: list[SetRecord],
     policies: list[ExercisePolicy],
     history_records: list[SetRecord] | None = None,
+    routine: RoutinePolicy | None = None,
 ) -> dict:
     if not records:
         raise ValueError("No imported workouts available; run `hevy-coach import PATH` first.")
@@ -48,7 +49,8 @@ def report_payload(
             ),
             None,
         )
-        working = working_sets(sets, policy.sets if policy else None)
+        warmup_set_count = routine.warmup_set_count(policy.name) if routine and policy else 0
+        working = working_sets(sets, policy.sets if policy else None, warmup_set_count)
         warmups = [item for item in sets if item not in working]
         last_rpe = next((item.rpe for item in reversed(working) if item.rpe is not None), None)
         exercises.append(
@@ -61,7 +63,11 @@ def report_payload(
         )
     recommendations = [
         {**asdict(item), "action": item.action.value}
-        for item in recommend_all(history_records or records, policies)
+        for item in recommend_all(
+            history_records or records,
+            policies,
+            dict(routine.warmup_set_counts) if routine else None,
+        )
     ]
     duration = int((first.ended_at - first.started_at).total_seconds()) if first.ended_at else None
     return {
