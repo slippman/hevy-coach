@@ -9,6 +9,13 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Treat only explicit Hevy metadata or configured warm-up counts as warm-ups; lighter first sets
+  are preserved as working sets by default.
+- Added workout-source freshness lines and stale-import warnings to gym cards.
+- Added latest workout and import dates to `status`.
+
+### Changed
+
 - Removed the legacy top-level `history` command; use `workout history` or `exercise history`.
 - Added an alias for Hevy's `PF:Back& Arms` title so it uses the Back & Arms gym-card policy.
 - Configured the first PF: Back & Arms baseline, including conservative first-session gym cards

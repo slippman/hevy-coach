@@ -20,7 +20,7 @@ def test_configured_aliases_and_rules_produce_expected_directions() -> None:
     assert items["Crunch (Machine)"].action is Action.INSUFFICIENT_DATA
 
 
-def test_extra_unmarked_sets_are_treated_as_ramp_up_sets() -> None:
+def test_unmarked_sets_are_not_inferred_as_ramp_up_sets() -> None:
     records = [
         item
         for item in read_hevy_csv(FIXTURE)
@@ -29,8 +29,26 @@ def test_extra_unmarked_sets_are_treated_as_ramp_up_sets() -> None:
 
     selected = working_sets(records, prescribed_sets=3)
 
-    assert len(selected) == 3
+    assert len(selected) == 4
     assert all(item.weight == 50 for item in selected)
+
+
+def test_lighter_first_skullcrusher_set_remains_a_working_set() -> None:
+    _, policies = load_config()
+    policy = next(item for item in policies if item.name == "Skullcrusher (Dumbbell)")
+    started_at = datetime(2024, 1, 1, tzinfo=UTC)
+    records = [
+        _set("Skullcrusher (Dumbbell)", 0, 20, 8, None, started_at),
+        _set("Skullcrusher (Dumbbell)", 1, 25, 8, None, started_at),
+        _set("Skullcrusher (Dumbbell)", 2, 25, 8, 7.5, started_at),
+    ]
+
+    selected = working_sets(records, policy.sets)
+    recommendation = recommend_exercise(records, policy)
+
+    assert [(item.weight, item.reps) for item in selected] == [(20, 8), (25, 8), (25, 8)]
+    assert "Working reps 8/8/8" in recommendation.evidence
+    assert recommendation.action is Action.HOLD_WEIGHT
 
 
 def test_routine_aliases_are_loaded() -> None:

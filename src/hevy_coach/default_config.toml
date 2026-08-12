@@ -13,11 +13,7 @@ exercise_order = [
   "Triceps Pushdown",
   "Crunch (Machine)",
 ]
-warmup_exercises = [
-  "Bench Press (Dumbbell)",
-  "Seated Cable Row - V Grip (Cable)",
-  "Shoulder Press (Machine Plates)",
-]
+warmup_set_counts = { "Bench Press (Dumbbell)" = 1, "Seated Cable Row - V Grip (Cable)" = 1, "Shoulder Press (Machine Plates)" = 1 }
 
 [workouts."PF: Back & Arms"]
 display_name = "PF: Back & Arms"
@@ -31,11 +27,7 @@ exercise_order = [
   "Crunch (Machine)",
   "Back Extension (Machine)",
 ]
-warmup_exercises = [
-  "Incline Bench Press (Dumbbell)",
-  "Lat Pulldown",
-  "Skullcrusher (Dumbbell)",
-]
+warmup_set_counts = { "Incline Bench Press (Dumbbell)" = 1, "Lat Pulldown" = 1 }
 
 [exercises."Incline Bench Press (Dumbbell)"]
 display_name = "Incline DB Bench"
@@ -68,7 +60,7 @@ increment = 5
 [exercises."Skullcrusher (Dumbbell)"]
 display_name = "DB Skullcrusher"
 aliases = ["Skullcrusher (Dumbbell)", "Dumbbell Skullcrusher"]
-sets = 2
+sets = 3
 rep_range = [8, 10]
 increment = 5
 

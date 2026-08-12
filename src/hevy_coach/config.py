@@ -51,6 +51,10 @@ def load_routine_policies(path: str | Path | None = None) -> list[RoutinePolicy]
             exercises=tuple(str(name) for name in values.get("exercise_order", [])),
             warmup_exercises=tuple(str(name) for name in values.get("warmup_exercises", [])),
             aliases=tuple(str(alias) for alias in values.get("aliases", [])),
+            warmup_set_counts=tuple(
+                (str(name), int(count))
+                for name, count in values.get("warmup_set_counts", {}).items()
+            ),
         )
         for title, values in data.get("workouts", {}).items()
     ]
