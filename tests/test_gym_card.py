@@ -193,6 +193,67 @@ def test_card_order_and_configured_warmups(tmp_path: Path) -> None:
     assert "Warm-up:" not in rendered
 
 
+def test_gym_card_uses_each_exercises_latest_session_after_partial_workouts(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "partial-chest.csv"
+    source.write_text(
+        "title,start_time,exercise_title,set_index,set_type,weight_lbs,reps,rpe\n"
+        "PF:Chest & Arms,2026-08-28 08:00:00,Cable Fly,0,normal,10,10,8\n"
+        "PF:Chest & Arms,2026-08-28 08:00:00,Cable Fly,1,normal,10,10,8\n"
+        "PF:Chest & Arms,2026-08-28 08:00:00,Cable Fly,2,normal,10,10,8\n"
+        "PF:Chest & Arms,2026-08-28 08:00:00,Lateral Raise,0,normal,10,12,8\n"
+        "PF:Chest & Arms,2026-08-28 08:00:00,Lateral Raise,1,normal,10,12,8\n"
+        "PF:Chest & Arms,2026-08-28 08:00:00,Lateral Raise,2,normal,10,12,8\n"
+        "PF:Chest & Arms,2026-08-28 12:00:00,Dumbbell Bench Press,0,warmup,25,8,6\n"
+        "PF:Chest & Arms,2026-08-28 12:00:00,Dumbbell Bench Press,1,normal,45,9,8\n"
+        "PF:Chest & Arms,2026-08-28 12:00:00,Dumbbell Bench Press,2,normal,45,9,8\n"
+        "PF:Chest & Arms,2026-08-28 12:00:00,Dumbbell Bench Press,3,normal,45,9,8\n"
+        "PF:Chest & Arms,2026-08-28 12:00:00,Seated Cable Row,0,warmup,65,8,6\n"
+        "PF:Chest & Arms,2026-08-28 12:00:00,Seated Cable Row,1,normal,105,10,8\n"
+        "PF:Chest & Arms,2026-08-28 12:00:00,Seated Cable Row,2,normal,105,10,8\n"
+        "PF:Chest & Arms,2026-08-28 12:00:00,Seated Cable Row,3,normal,105,10,8\n"
+        "PF:Chest & Arms,2026-08-28 12:00:00,Seated Cable Row,4,normal,105,10,8\n",
+        encoding="utf-8",
+    )
+    db = tmp_path / "hevy.db"
+    with database(db) as connection:
+        import_csv(connection, source, db.parent / "imports")
+        records = records_for_workout(connection, "PF:Chest & Arms")
+
+    _, policies = load_config()
+    routine = load_routine_policies()[0]
+    title, items = build_card(routine, "PF:Chest & Arms", records, policies)
+    rendered = render_card(title, items)
+
+    assert [item.exercise for item in items] == [
+        "Bench Press",
+        "Seated Cable Row",
+        "Cable Fly",
+        "Lateral Raise",
+    ]
+    assert "Cable Fly\nSET   LBS   REPS\n1     10    10" in rendered
+    assert "Lateral Raise\nSET   LBS   REPS\n1     10    12" in rendered
+
+
+def test_workout_history_keeps_partial_sessions_separate(tmp_path: Path) -> None:
+    source = tmp_path / "two-parts.csv"
+    source.write_text(
+        "title,start_time,exercise_title,set_index,set_type,weight_lbs,reps,rpe\n"
+        "PF:Chest & Arms,2026-08-28 08:00:00,Cable Fly,0,normal,10,10,8\n"
+        "PF:Chest & Arms,2026-08-28 12:00:00,Dumbbell Bench Press,0,normal,45,9,8\n",
+        encoding="utf-8",
+    )
+    db = tmp_path / "hevy.db"
+    with database(db) as connection:
+        import_csv(connection, source, db.parent / "imports")
+
+    result = CliRunner().invoke(main, ["workout", "history", "--db", str(db)])
+
+    assert result.exit_code == 0, result.output
+    assert result.output.count("PF:Chest & Arms") == 2
+
+
 def test_freshness_line_warns_only_after_seven_days() -> None:
     source = date(2026, 8, 4)
 
