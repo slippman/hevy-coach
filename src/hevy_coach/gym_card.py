@@ -18,6 +18,7 @@ class CardItem:
     warmup: str | None = None
     planned_sets: tuple[CardSet, ...] = ()
     history_status: str = "established"
+    source_date: date | None = None
 
 
 @dataclass(frozen=True)
@@ -43,6 +44,18 @@ def _group(records: list[SetRecord]) -> OrderedDict[str, list[SetRecord]]:
 
 def _policy(name: str, policies: list[ExercisePolicy]) -> ExercisePolicy | None:
     return next((policy for policy in policies if _matches(name, policy)), None)
+
+
+def _latest_exercise_session(records: list[SetRecord], policy: ExercisePolicy) -> list[SetRecord]:
+    """Return the latest session for one exercise, regardless of routine completeness."""
+    matches = [record for record in records if _matches(record.exercise, policy)]
+    if not matches:
+        return []
+    latest = max(record.started_at for record in matches)
+    return sorted(
+        (record for record in matches if record.started_at == latest),
+        key=lambda record: record.set_index,
+    )
 
 
 def unknown_routine_exercises(
@@ -77,16 +90,23 @@ def build_card(
     )
     items: list[CardItem] = []
     for canonical in desired_order:
-        matches = next(
-            (
-                sets
-                for name, sets in by_title.items()
-                if (policy := _policy(name, policies)) and policy.name == canonical
-            ),
-            None,
-        )
         policy = next((item for item in policies if item.name == canonical), None)
-        if policy is None or not matches:
+        if policy is None:
+            continue
+        matches = (
+            _latest_exercise_session(records, policy)
+            if routine
+            else next(
+                (
+                    sets
+                    for name, sets in by_title.items()
+                    if (matched_policy := _policy(name, policies))
+                    and matched_policy.name == canonical
+                ),
+                [],
+            )
+        )
+        if not matches:
             continue
         history_status = (
             "limited"
@@ -127,10 +147,17 @@ def build_card(
                 warmup,
                 ((warmup_set,) if warmup_set else ()) + planned_working_sets,
                 history_status,
+                max(item.started_at for item in matches).date(),
             )
         )
     display = routine.display_title if routine else title
     return display, items
+
+
+def oldest_card_source_date(items: list[CardItem]) -> date | None:
+    """Return the oldest exercise-session date represented on a gym card."""
+    dates = [item.source_date for item in items if item.source_date is not None]
+    return min(dates) if dates else None
 
 
 def freshness_line(source_date: date, today: date) -> tuple[str, bool]:

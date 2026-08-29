@@ -258,6 +258,22 @@ def test_large_increment_high_rpe_or_missed_ceiling_resets_confirmation_streak()
     assert max(target) <= lateral_raise.rep_max
 
 
+def test_skipping_an_exercise_in_a_partial_workout_does_not_reset_its_progression() -> None:
+    _, policies = load_config()
+    lateral_raise = next(item for item in policies if item.name == "Lateral Raise (Dumbbell)")
+    first = datetime(2024, 1, 1, tzinfo=UTC)
+    first_success = _ceiling_session(lateral_raise.name, first, 8, lateral_raise.rep_max)
+    unrelated_partial = [_set("Dumbbell Bench Press", 0, 45, 9, 8, first + timedelta(days=1))]
+    second_success = _ceiling_session(
+        lateral_raise.name, first + timedelta(days=3), 8, lateral_raise.rep_max
+    )
+    records = first_success + unrelated_partial + second_success
+
+    weight, target = next_session_target(second_success, lateral_raise, "established", records)
+
+    assert (weight, target) == (15, [lateral_raise.rep_min] * 3)
+
+
 def test_normal_increment_exercise_progresses_after_one_successful_ceiling_session() -> None:
     _, policies = load_config()
     cable_fly = next(item for item in policies if item.name == "Cable Fly Crossovers")
