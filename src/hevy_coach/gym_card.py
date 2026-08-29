@@ -18,6 +18,7 @@ class CardItem:
     warmup: str | None = None
     planned_sets: tuple[CardSet, ...] = ()
     history_status: str = "established"
+    source_date: date | None = None
 
 
 @dataclass(frozen=True)
@@ -146,10 +147,17 @@ def build_card(
                 warmup,
                 ((warmup_set,) if warmup_set else ()) + planned_working_sets,
                 history_status,
+                max(item.started_at for item in matches).date(),
             )
         )
     display = routine.display_title if routine else title
     return display, items
+
+
+def oldest_card_source_date(items: list[CardItem]) -> date | None:
+    """Return the oldest exercise-session date represented on a gym card."""
+    dates = [item.source_date for item in items if item.source_date is not None]
+    return min(dates) if dates else None
 
 
 def freshness_line(source_date: date, today: date) -> tuple[str, bool]:

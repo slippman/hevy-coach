@@ -14,7 +14,14 @@ import click
 from .clipboard import Clipboard
 from .coach import working_sets
 from .config import load_config, load_routine_policies, resolve_routine
-from .gym_card import build_card, card_json, freshness_line, render_card, unknown_routine_exercises
+from .gym_card import (
+    build_card,
+    card_json,
+    freshness_line,
+    oldest_card_source_date,
+    render_card,
+    unknown_routine_exercises,
+)
 from .importer import import_csv
 from .persistent_report import dated_filename, markdown, report_payload
 from .query import (
@@ -193,7 +200,9 @@ def gym_card(
     if not items:
         raise click.ClickException(f"No configured strength exercises found for {selected!r}.")
     unknown = unknown_routine_exercises(routine, records, policies)
-    source_date = max(record.started_at for record in records).date()
+    source_date = (
+        oldest_card_source_date(items) or max(record.started_at for record in records).date()
+    )
     today = datetime.now().astimezone().date()
     _, stale = freshness_line(source_date, today)
     rendered = render_card(title, items, source_date=source_date, today=today)
@@ -217,7 +226,7 @@ def gym_card(
             err=True,
         )
     if stale and not as_json:
-        click.echo("Latest Hevy export may not be imported.", err=True)
+        click.echo("Some exercise history may be stale.", err=True)
 
 
 def _show_exercise_history(exercise: str, limit: int, db: Path) -> None:
