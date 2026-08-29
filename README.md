@@ -165,6 +165,14 @@ session resets that confirmation streak. For example, the configured Lateral Rai
 × 12/12/12 after its first clean ceiling session, then prescribes 15 lb × 8/8/8 after a second
 consecutive clean ceiling session. RPE 10 retains the existing hold or reduce behavior.
 
+## Partial workouts
+
+Every Hevy workout event remains a separate session, even when you do two parts of the same
+routine on one day. A partial session updates progression only for exercises you actually logged;
+skipped exercises are neither treated as failures nor reset. Gym cards retain the configured
+routine order and use each exercise's most recent logged session, so a partial workout never makes
+previously completed exercises disappear from the next card.
+
 ## Development
 
 Install the development tools once:

@@ -19,6 +19,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   large-increment progression.
 - Require two consecutive low-RPE ceiling sessions before increasing exercises configured with
   `large_increment = true`.
+- Support partial workouts without merging same-day sessions; gym cards retain configured exercises
+  by using each exercise's latest logged session.
 
 ### Changed
 
