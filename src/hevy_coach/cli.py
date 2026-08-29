@@ -6,7 +6,7 @@ import json
 import shutil
 import subprocess
 import sys
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 
 import click
@@ -194,7 +194,7 @@ def gym_card(
         raise click.ClickException(f"No configured strength exercises found for {selected!r}.")
     unknown = unknown_routine_exercises(routine, records, policies)
     source_date = max(record.started_at for record in records).date()
-    today = datetime.now(UTC).date()
+    today = datetime.now().astimezone().date()
     _, stale = freshness_line(source_date, today)
     rendered = render_card(title, items, source_date=source_date, today=today)
     if as_json:

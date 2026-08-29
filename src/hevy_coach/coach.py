@@ -36,6 +36,22 @@ def _session_count(records: Iterable[SetRecord], policy: ExercisePolicy) -> int:
     return len({record.started_at for record in records if _matches(record.exercise, policy)})
 
 
+def _exercise_sessions(
+    records: Iterable[SetRecord], policy: ExercisePolicy, warmup_set_count: int = 0
+) -> list[list[SetRecord]]:
+    """Return the exercise's working sets grouped chronologically by session."""
+    grouped: dict[object, list[SetRecord]] = {}
+    for record in records:
+        if _matches(record.exercise, policy):
+            grouped.setdefault(record.started_at, []).append(record)
+    return [
+        working_sets(
+            sorted(session, key=lambda record: record.set_index), policy.sets, warmup_set_count
+        )
+        for _, session in sorted(grouped.items())
+    ]
+
+
 def working_sets(
     records: list[SetRecord], prescribed_sets: int | None = None, warmup_set_count: int = 0
 ) -> list[SetRecord]:
@@ -47,10 +63,70 @@ def working_sets(
     return normal[configured_unmarked_warmups:]
 
 
+def _successful_ceiling_session(sets: list[SetRecord], policy: ExercisePolicy) -> bool:
+    """A large jump needs a complete, low-RPE session at the rep ceiling."""
+    reps = [item.reps for item in sets[: policy.sets] if item.reps is not None]
+    last_rpe = next((item.rpe for item in reversed(sets) if item.rpe is not None), None)
+    return (
+        len(reps) >= policy.sets
+        and all(rep >= policy.rep_max for rep in reps)
+        and last_rpe is not None
+        and last_rpe <= 8.5
+    )
+
+
+def large_increment_confirmation_streak(
+    records: Iterable[SetRecord], policy: ExercisePolicy, warmup_set_count: int = 0
+) -> int:
+    """Count consecutive successful ceiling sessions ending with the latest one."""
+    streak = 0
+    for session in reversed(_exercise_sessions(records, policy, warmup_set_count)):
+        if not _successful_ceiling_session(session, policy):
+            break
+        streak += 1
+    return streak
+
+
 def _evidence(sets: list[SetRecord], last_rpe: float | None) -> str:
     reps = "/".join("–" if item.reps is None else str(item.reps) for item in sets)
     rpe = "not logged" if last_rpe is None else f"{last_rpe:g}"
     return f"Working reps {reps}; last-set RPE {rpe}"
+
+
+def next_session_target(
+    sets: list[SetRecord],
+    policy: ExercisePolicy,
+    history_status: str,
+    history_records: Iterable[SetRecord] | None = None,
+    warmup_set_count: int = 0,
+) -> tuple[float | None, list[int]]:
+    """Return a ceiling-safe next load and rep targets from resolved policy."""
+    weight = next((item.weight for item in reversed(sets) if item.weight is not None), None)
+    logged = [item.reps for item in sets if item.reps is not None]
+    if not logged:
+        return weight, [policy.rep_min] * policy.sets
+    reps = [min(policy.rep_max, max(policy.rep_min, rep)) for rep in logged[: policy.sets]]
+    if history_status == "limited":
+        return weight, reps
+    last_rpe = next((item.rpe for item in reversed(sets) if item.rpe is not None), None)
+    at_ceiling = len(reps) >= policy.sets and all(rep >= policy.rep_max for rep in reps)
+    if at_ceiling:
+        if last_rpe is not None and last_rpe <= 8.5 and not policy.large_increment:
+            return (weight + policy.increment if weight is not None else None), [
+                policy.rep_min
+            ] * policy.sets
+        if policy.large_increment and _successful_ceiling_session(sets, policy):
+            history = list(history_records) if history_records is not None else sets
+            if large_increment_confirmation_streak(history, policy, warmup_set_count) >= 2:
+                return (weight + policy.increment if weight is not None else None), [
+                    policy.rep_min
+                ] * policy.sets
+        return weight, [policy.rep_max] * policy.sets
+    if len(set(reps)) == 1:
+        return weight, [min(policy.rep_max, reps[0] + 1)] * len(reps)
+    lowest = min(range(len(reps)), key=reps.__getitem__)
+    reps[lowest] = min(policy.rep_max, reps[lowest] + 1)
+    return weight, reps
 
 
 def recommend_exercise(
@@ -142,7 +218,27 @@ def recommend_exercise(
             f"Keep {label} lb; confirm {policy.sets}×{policy.rep_max} once more before increasing.",
             evidence,
         )
-    if range_topped and (last_rpe is None or last_rpe <= 9.0):
+    if range_topped and policy.large_increment:
+        successful = _successful_ceiling_session(sets, policy)
+        confirmations = large_increment_confirmation_streak(materialized, policy, warmup_set_count)
+        if successful and confirmations >= 2:
+            next_weight = weight + policy.increment
+            return Recommendation(
+                policy.name,
+                Action.INCREASE_WEIGHT,
+                next_weight,
+                f"Increase one increment to {_fmt_weight(next_weight)} lb next time.",
+                evidence,
+            )
+        if successful:
+            message = (
+                f"Keep {label} lb; repeat {policy.sets}×{policy.rep_max} once more before "
+                "taking the large weight jump."
+            )
+        else:
+            message = f"Keep {label} lb; repeat {policy.sets}×{policy.rep_max} before increasing."
+        return Recommendation(policy.name, Action.HOLD_WEIGHT, weight, message, evidence)
+    if range_topped and (last_rpe is None or last_rpe <= 8.5) and not policy.large_increment:
         next_weight = weight + policy.increment
         return Recommendation(
             policy.name,

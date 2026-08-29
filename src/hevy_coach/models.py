@@ -44,6 +44,8 @@ class ExercisePolicy:
     rep_min: int
     rep_max: int
     increment: float
+    category: str = "global"
+    large_increment: bool = False
     starting_weight: float | None = None
     increase_requires_confirmation: bool = False
     display_name: str | None = None

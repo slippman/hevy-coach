@@ -69,9 +69,9 @@ def test_report_scopes_recommendations_to_latest_routine_and_refreshes_progressi
     latest.write_text(
         "title,start_time,exercise_title,set_index,set_type,weight_lbs,reps,rpe\n"
         "PF:Chest & Arms,2024-01-04 18:00:00,Dumbbell Bench Press,0,warmup,20,8,5\n"
-        "PF:Chest & Arms,2024-01-04 18:00:00,Dumbbell Bench Press,1,normal,45,9,8\n"
-        "PF:Chest & Arms,2024-01-04 18:00:00,Dumbbell Bench Press,2,normal,45,9,8\n"
-        "PF:Chest & Arms,2024-01-04 18:00:00,Dumbbell Bench Press,3,normal,45,9,8\n",
+        "PF:Chest & Arms,2024-01-04 18:00:00,Dumbbell Bench Press,1,normal,45,10,8\n"
+        "PF:Chest & Arms,2024-01-04 18:00:00,Dumbbell Bench Press,2,normal,45,10,8\n"
+        "PF:Chest & Arms,2024-01-04 18:00:00,Dumbbell Bench Press,3,normal,45,10,8\n",
         encoding="utf-8",
     )
 

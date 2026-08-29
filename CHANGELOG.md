@@ -13,6 +13,12 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   are preserved as working sets by default.
 - Added workout-source freshness lines and stale-import warnings to gym cards.
 - Added latest workout and import dates to `status`.
+- Moved rep ranges, increments, categories, and large-increment behavior into validated TOML
+  coaching configuration; gym cards now enforce configured rep ceilings.
+- Restored the Lateral Raise's exercise-specific 8–12 range while preserving its conservative
+  large-increment progression.
+- Require two consecutive low-RPE ceiling sessions before increasing exercises configured with
+  `large_increment = true`.
 
 ### Changed
 

@@ -136,16 +136,34 @@ copy. Keep backups outside this repository or in your preferred encrypted backup
 ## Progression configuration
 
 [`src/hevy_coach/default_config.toml`](src/hevy_coach/default_config.toml) defines canonical
-exercise names, aliases, working-set counts, rep ranges, increments, and optional starting
-weights. Copy it, edit it, then pass it to reporting:
+exercise names, aliases, working-set counts, coaching categories, rep ranges, increments, and
+optional starting weights. Copy it, edit it, then pass it to reporting:
 
 ```bash
 uv run hevy-coach report --config my-progression.toml
 ```
 
-The default rules increase weight when every working set reaches the rep-range ceiling at RPE
-8.5 or lower; hold and add reps when in range but not yet at the ceiling; and never increase at
-an RPE of 10. High RPE and a rep drop below range cause a hold/reduction recommendation.
+Category defaults live under `[defaults.categories]`: compounds are 6–10, isolations are 8–10,
+and core work is 8–12. An exercise inherits the global default, then its category, then any
+exercise-specific override (highest precedence). For example:
+
+```toml
+[exercises."Lateral Raise (Dumbbell)"]
+category = "isolation"
+min_reps = 8
+max_reps = 10
+increment_lbs = 5
+large_increment = true
+```
+
+You do not need to edit Python to change these preferences. Gym cards never prescribe more than
+an exercise’s configured maximum. At the top of range, RPE ≤ 8.5 increases the configured load
+and resets reps to the range minimum; RPE 9–9.5 repeats the ceiling. For a large percentage jump,
+set `large_increment = true`. The engine then requires two consecutive successful ceiling sessions
+(all target reps at last-set RPE ≤ 8.5) before increasing load. A missed ceiling or higher-RPE
+session resets that confirmation streak. For example, the configured Lateral Raise repeats 10 lb
+× 12/12/12 after its first clean ceiling session, then prescribes 15 lb × 8/8/8 after a second
+consecutive clean ceiling session. RPE 10 retains the existing hold or reduce behavior.
 
 ## Development
 
