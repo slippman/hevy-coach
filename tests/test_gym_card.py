@@ -254,6 +254,33 @@ def test_workout_history_keeps_partial_sessions_separate(tmp_path: Path) -> None
     assert result.output.count("PF:Chest & Arms") == 2
 
 
+@patch("hevy_coach.cli.datetime")
+def test_partial_card_freshness_uses_oldest_exercise_session(mock_datetime, tmp_path: Path) -> None:
+    mock_datetime.now.return_value = datetime(2026, 8, 13, 12, tzinfo=UTC)
+    source = tmp_path / "mixed-freshness.csv"
+    source.write_text(
+        "title,start_time,exercise_title,set_index,set_type,weight_lbs,reps,rpe\n"
+        "PF:Chest & Arms,2026-08-04 08:00:00,Cable Fly,0,normal,10,10,8\n"
+        "PF:Chest & Arms,2026-08-04 08:00:00,Cable Fly,1,normal,10,10,8\n"
+        "PF:Chest & Arms,2026-08-04 08:00:00,Cable Fly,2,normal,10,10,8\n"
+        "PF:Chest & Arms,2026-08-12 12:00:00,Dumbbell Bench Press,0,normal,45,9,8\n"
+        "PF:Chest & Arms,2026-08-12 12:00:00,Dumbbell Bench Press,1,normal,45,9,8\n"
+        "PF:Chest & Arms,2026-08-12 12:00:00,Dumbbell Bench Press,2,normal,45,9,8\n",
+        encoding="utf-8",
+    )
+    db = tmp_path / "hevy.db"
+    with database(db) as connection:
+        import_csv(connection, source, db.parent / "imports")
+
+    result = CliRunner().invoke(
+        main, ["gym-card", "--workout", "chest", "--no-clipboard", "--db", str(db)]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "⚠ Based on: Aug 4, 2026 (9 days ago)" in result.stdout
+    assert "Some exercise history may be stale." in result.stderr
+
+
 def test_freshness_line_warns_only_after_seven_days() -> None:
     source = date(2026, 8, 4)
 
@@ -290,7 +317,7 @@ def test_gym_card_freshness_uses_local_date_before_utc_midnight(
 
     assert result.exit_code == 0, result.output
     assert "Based on: Aug 11, 2026 (7 days ago)" in result.stdout
-    assert "Latest Hevy export may not be imported." not in result.stderr
+    assert "Some exercise history may be stale." not in result.stderr
 
 
 @patch("hevy_coach.cli.datetime")
@@ -319,5 +346,5 @@ def test_card_uses_selected_routine_date_and_surfaces_staleness_in_clipboard_mod
     assert result.exit_code == 0, result.output
     assert result.stdout == ""
     assert 'Copied "PF: Back & Arms" gym card to clipboard.' in result.stderr
-    assert "Latest Hevy export may not be imported." in result.stderr
+    assert "Some exercise history may be stale." in result.stderr
     assert "⚠ Based on: Aug 4, 2026 (8 days ago)" in mock_copy.call_args.args[0]
