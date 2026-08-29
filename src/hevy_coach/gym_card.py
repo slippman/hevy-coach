@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 
-from .coach import _matches, working_sets
+from .coach import _matches, next_session_target, working_sets
 from .models import ExercisePolicy, RoutinePolicy, SetRecord
 
 
@@ -45,31 +45,6 @@ def _policy(name: str, policies: list[ExercisePolicy]) -> ExercisePolicy | None:
     return next((policy for policy in policies if _matches(name, policy)), None)
 
 
-def _set_target(sets: list[SetRecord], policy: ExercisePolicy, history_status: str) -> str:
-    reps = [record.reps for record in sets if record.reps is not None]
-    if not reps:
-        return "Hold weight · repeat target"
-    if history_status == "limited":
-        return f"{len(reps)}×{reps[0]}" if len(set(reps)) == 1 else "/".join(map(str, reps))
-    last_rpe = next((record.rpe for record in reversed(sets) if record.rpe is not None), None)
-    # Ramped loads: use the final load as the consistent baseline next session.
-    if len({record.weight for record in sets}) > 1:
-        return f"{policy.sets}×{reps[-1]}"
-    if last_rpe is not None and last_rpe >= 9.5:
-        if reps[-1] < policy.rep_min:
-            return "/".join(str(max(rep, policy.rep_min)) for rep in reps)
-        if all(rep >= policy.rep_max for rep in reps):
-            return f"{policy.sets}×{policy.rep_max}"
-    if all(rep == reps[0] for rep in reps):
-        if last_rpe is not None and last_rpe <= 7 and policy.rep_max > reps[0]:
-            return f"{policy.sets}×{policy.rep_max}"
-        return f"{policy.sets}×{reps[0] + 1}"
-    target = list(reps)
-    lowest = min(range(len(target)), key=target.__getitem__)
-    target[lowest] += 1
-    return "/".join(str(rep) for rep in target)
-
-
 def unknown_routine_exercises(
     routine: RoutinePolicy | None,
     records: list[SetRecord],
@@ -83,17 +58,6 @@ def unknown_routine_exercises(
         if policy is None or policy.name not in routine.exercises:
             unknown.append(name)
     return tuple(unknown)
-
-
-def _target_reps(prescription: str, policy: ExercisePolicy) -> list[int]:
-    if "×" in prescription:
-        count, reps = prescription.split("×", maxsplit=1)
-        if count.isdigit() and reps.isdigit():
-            return [int(reps)] * int(count)
-    parts = prescription.split("/")
-    if len(parts) > 1 and all(part.isdigit() for part in parts):
-        return [int(part) for part in parts]
-    return [policy.rep_min] * policy.sets
 
 
 def build_card(
@@ -134,7 +98,6 @@ def build_card(
         selected = working_sets(matches, policy.sets, warmup_set_count)
         if not selected:
             continue
-        weight = next((item.weight for item in reversed(selected) if item.weight is not None), None)
         ramp_up = [item for item in matches if item not in selected]
         warmup = None
         warmup_set = None
@@ -143,11 +106,18 @@ def build_card(
             if first.weight is not None and first.reps is not None:
                 warmup = f"{first.weight:g} lb × {first.reps}"
                 warmup_set = CardSet(1, first.weight, first.reps)
-        prescription = _set_target(selected, policy, history_status)
+        weight, target_reps = next_session_target(
+            selected, policy, history_status, records, warmup_set_count
+        )
+        prescription = (
+            f"{len(target_reps)}×{target_reps[0]}"
+            if target_reps and len(set(target_reps)) == 1
+            else "/".join(str(rep) for rep in target_reps)
+        )
         working_set_offset = 1 if warmup_set else 0
         planned_working_sets = tuple(
             CardSet(number + working_set_offset, weight, reps)
-            for number, reps in enumerate(_target_reps(prescription, policy), start=1)
+            for number, reps in enumerate(target_reps, start=1)
         )
         items.append(
             CardItem(
@@ -180,7 +150,7 @@ def render_card(
 ) -> str:
     blocks = [title]
     if source_date is not None:
-        freshness, stale = freshness_line(source_date, today or datetime.now(UTC).date())
+        freshness, stale = freshness_line(source_date, today or datetime.now().astimezone().date())
         blocks.append(("⚠ " if stale else "") + freshness)
     for item in items:
         lines = [item.exercise, "SET   LBS   REPS"]

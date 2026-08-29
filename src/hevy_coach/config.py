@@ -6,6 +6,23 @@ from pathlib import Path
 
 from .models import ExercisePolicy, RoutinePolicy
 
+VALID_CATEGORIES = {"compound", "isolation", "core"}
+
+
+def _positive_int(value: object, label: str) -> int:
+    number = int(value)
+    if number <= 0:
+        raise ValueError(f"{label} must be positive")
+    return number
+
+
+def _rep_range(values: dict, label: str) -> tuple[int, int]:
+    minimum = _positive_int(values["min_reps"], f"{label}.min_reps")
+    maximum = _positive_int(values["max_reps"], f"{label}.max_reps")
+    if minimum > maximum:
+        raise ValueError(f"{label} has min_reps greater than max_reps")
+    return minimum, maximum
+
 
 def default_config_path() -> Path:
     return Path(str(files("hevy_coach").joinpath("default_config.toml")))
@@ -17,17 +34,32 @@ def load_config(path: str | Path | None = None) -> tuple[list[str], list[Exercis
         data = tomllib.load(handle)
 
     routines = [str(item) for item in data.get("routines", {}).get("names", [])]
+    defaults = data.get("defaults", {})
+    global_default = defaults.get("global", {})
+    categories = defaults.get("categories", {})
     policies = []
     for name, values in data.get("exercises", {}).items():
-        rep_range = values["rep_range"]
+        category = str(values.get("category", "global"))
+        if category != "global" and category not in VALID_CATEGORIES:
+            raise ValueError(f"exercise {name!r} has unknown category {category!r}")
+        inherited = {**global_default, **categories.get(category, {}), **values}
+        rep_min, rep_max = _rep_range(inherited, f"exercise {name!r}")
+        increment = float(inherited["increment_lbs"])
+        if increment <= 0:
+            raise ValueError(f"exercise {name!r}.increment_lbs must be positive")
+        sets = int(inherited["sets"])
+        if sets <= 0:
+            raise ValueError(f"exercise {name!r}.sets must be positive")
         policies.append(
             ExercisePolicy(
                 name=name,
                 aliases=tuple(str(alias) for alias in values.get("aliases", [])),
-                sets=int(values["sets"]),
-                rep_min=int(rep_range[0]),
-                rep_max=int(rep_range[1]),
-                increment=float(values["increment"]),
+                sets=sets,
+                rep_min=rep_min,
+                rep_max=rep_max,
+                increment=increment,
+                category=category,
+                large_increment=bool(inherited.get("large_increment", False)),
                 starting_weight=(
                     float(values["starting_weight"]) if "starting_weight" in values else None
                 ),
