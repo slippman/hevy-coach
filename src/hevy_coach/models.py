@@ -49,6 +49,10 @@ class ExercisePolicy:
     starting_weight: float | None = None
     increase_requires_confirmation: bool = False
     display_name: str | None = None
+    progression: str = "weighted_reps"
+    duration_min_seconds: int | None = None
+    duration_max_seconds: int | None = None
+    duration_increment_seconds: int | None = None
 
 
 @dataclass(frozen=True)
@@ -62,6 +66,13 @@ class Recommendation:
 
 
 @dataclass(frozen=True)
+class SupersetPolicy:
+    exercises: tuple[str, ...]
+    rest_min_seconds: int
+    rest_max_seconds: int
+
+
+@dataclass(frozen=True)
 class RoutinePolicy:
     title: str
     display_title: str
@@ -69,6 +80,7 @@ class RoutinePolicy:
     warmup_exercises: tuple[str, ...] = ()
     aliases: tuple[str, ...] = ()
     warmup_set_counts: tuple[tuple[str, int], ...] = ()
+    supersets: tuple[SupersetPolicy, ...] = ()
 
     def warmup_set_count(self, exercise: str) -> int:
         return dict(self.warmup_set_counts).get(exercise, 0)

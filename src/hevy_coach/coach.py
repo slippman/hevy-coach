@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 from .models import Action, ExercisePolicy, Recommendation, SetRecord
+from .time_utils import local_date
 
 
 def _matches(name: str, policy: ExercisePolicy) -> bool:
@@ -105,10 +106,22 @@ def next_session_target(
     logged = [item.reps for item in sets if item.reps is not None]
     if not logged:
         return weight, [policy.rep_min] * policy.sets
+    if history_status == "limited" and policy.progression == "bodyweight_reps":
+        return None, logged[: policy.sets]
     reps = [min(policy.rep_max, max(policy.rep_min, rep)) for rep in logged[: policy.sets]]
     if history_status == "limited":
         return weight, reps
     last_rpe = next((item.rpe for item in reversed(sets) if item.rpe is not None), None)
+    if policy.progression == "bodyweight_reps":
+        if last_rpe is not None and last_rpe >= 9.5:
+            return None, reps
+        if len(reps) >= policy.sets and all(rep >= policy.rep_max for rep in reps):
+            return None, [policy.rep_max] * policy.sets
+        if len(set(reps)) == 1:
+            return None, [min(policy.rep_max, reps[0] + 1)] * len(reps)
+        lowest = min(range(len(reps)), key=reps.__getitem__)
+        reps[lowest] = min(policy.rep_max, reps[lowest] + 1)
+        return None, reps
     at_ceiling = len(reps) >= policy.sets and all(rep >= policy.rep_max for rep in reps)
     if at_ceiling:
         if last_rpe is not None and last_rpe <= 8.5 and not policy.large_increment:
@@ -127,6 +140,25 @@ def next_session_target(
     lowest = min(range(len(reps)), key=reps.__getitem__)
     reps[lowest] = min(policy.rep_max, reps[lowest] + 1)
     return weight, reps
+
+
+def next_duration_target(
+    sets: list[SetRecord], policy: ExercisePolicy, history_status: str
+) -> list[int]:
+    """Return duration targets without treating timed work as weighted or rep-based."""
+    logged = [item.duration_seconds for item in sets if item.duration_seconds is not None]
+    minimum = policy.duration_min_seconds or 1
+    maximum = policy.duration_max_seconds or minimum
+    increment = policy.duration_increment_seconds or 1
+    if not logged:
+        return [minimum] * policy.sets
+    if history_status == "limited":
+        return logged[: policy.sets]
+    durations = [min(maximum, max(minimum, value)) for value in logged[: policy.sets]]
+    last_rpe = next((item.rpe for item in reversed(sets) if item.rpe is not None), None)
+    if last_rpe is not None and last_rpe >= 9.5:
+        return durations
+    return [min(maximum, value + increment) for value in durations]
 
 
 def recommend_exercise(
@@ -164,6 +196,38 @@ def recommend_exercise(
     rpes = [item.rpe for item in sets if item.rpe is not None]
     last_rpe = rpes[-1] if rpes else None
     evidence = _evidence(sets, last_rpe)
+
+    if policy.progression == "duration":
+        durations = next_duration_target(sets, policy, history_status)
+        target = "/".join(str(value) for value in durations)
+        return Recommendation(
+            policy.name,
+            Action.HOLD_WEIGHT if history_status == "limited" else Action.ADD_REPS,
+            None,
+            f"Hold for {target} seconds.",
+            evidence,
+            history_status,
+        )
+
+    if policy.progression == "bodyweight_reps":
+        _, targets = next_session_target(
+            sets, policy, history_status, materialized, warmup_set_count
+        )
+        target = "/".join(str(rep) for rep in targets)
+        at_ceiling = len(reps) >= policy.sets and all(
+            rep >= policy.rep_max for rep in reps[: policy.sets]
+        )
+        should_hold = (
+            history_status == "limited" or (last_rpe is not None and last_rpe >= 9.5) or at_ceiling
+        )
+        return Recommendation(
+            policy.name,
+            Action.HOLD_WEIGHT if should_hold else Action.ADD_REPS,
+            None,
+            f"Bodyweight · {target}.",
+            evidence,
+            history_status,
+        )
 
     if weight is None or not reps:
         return Recommendation(
@@ -299,4 +363,4 @@ def summarize_workouts(records: Iterable[SetRecord]) -> tuple[int, str]:
     if not workouts:
         return 0, "none"
     latest = max(started_at for _, started_at in workouts)
-    return len(workouts), latest.date().isoformat()
+    return len(workouts), local_date(latest).isoformat()

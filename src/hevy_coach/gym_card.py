@@ -6,8 +6,9 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import date, datetime
 
-from .coach import _matches, next_session_target, working_sets
+from .coach import _matches, next_duration_target, next_session_target, working_sets
 from .models import ExercisePolicy, RoutinePolicy, SetRecord
+from .time_utils import local_date
 
 
 @dataclass(frozen=True)
@@ -19,6 +20,8 @@ class CardItem:
     planned_sets: tuple[CardSet, ...] = ()
     history_status: str = "established"
     source_date: date | None = None
+    progression: str = "weighted_reps"
+    section_label: str | None = None
 
 
 @dataclass(frozen=True)
@@ -26,6 +29,7 @@ class CardSet:
     number: int
     weight: float | None
     reps: int | None
+    duration_seconds: int | None = None
 
 
 def latest_session(records: list[SetRecord]) -> list[SetRecord]:
@@ -89,6 +93,21 @@ def build_card(
         )
     )
     items: list[CardItem] = []
+    superset_labels: dict[str, str] = {}
+    if routine:
+        policy_by_name = {policy.name: policy for policy in policies}
+        for superset in routine.supersets:
+            names = [
+                policy_by_name[name].display_name or name
+                for name in superset.exercises
+                if name in policy_by_name
+            ]
+            if names:
+                rounds = max(policy_by_name[name].sets for name in superset.exercises)
+                superset_labels[superset.exercises[0]] = (
+                    f"SUPERSET · {rounds} ROUNDS · {' → '.join(names)} · "
+                    f"REST {superset.rest_min_seconds}–{superset.rest_max_seconds} SEC"
+                )
     for canonical in desired_order:
         policy = next((item for item in policies if item.name == canonical), None)
         if policy is None:
@@ -126,18 +145,32 @@ def build_card(
             if first.weight is not None and first.reps is not None:
                 warmup = f"{first.weight:g} lb × {first.reps}"
                 warmup_set = CardSet(1, first.weight, first.reps)
-        weight, target_reps = next_session_target(
-            selected, policy, history_status, records, warmup_set_count
-        )
-        prescription = (
-            f"{len(target_reps)}×{target_reps[0]}"
-            if target_reps and len(set(target_reps)) == 1
-            else "/".join(str(rep) for rep in target_reps)
-        )
+        if policy.progression == "duration":
+            weight = None
+            target_reps: list[int] = []
+            target_durations = next_duration_target(selected, policy, history_status)
+            prescription = "/".join(f"{value}s" for value in target_durations)
+        else:
+            weight, target_reps = next_session_target(
+                selected, policy, history_status, records, warmup_set_count
+            )
+            target_durations = []
+            prescription = (
+                f"{len(target_reps)}×{target_reps[0]}"
+                if target_reps and len(set(target_reps)) == 1
+                else "/".join(str(rep) for rep in target_reps)
+            )
         working_set_offset = 1 if warmup_set else 0
-        planned_working_sets = tuple(
-            CardSet(number + working_set_offset, weight, reps)
-            for number, reps in enumerate(target_reps, start=1)
+        planned_working_sets = (
+            tuple(
+                CardSet(number + working_set_offset, None, None, duration)
+                for number, duration in enumerate(target_durations, start=1)
+            )
+            if policy.progression == "duration"
+            else tuple(
+                CardSet(number + working_set_offset, weight, reps)
+                for number, reps in enumerate(target_reps, start=1)
+            )
         )
         items.append(
             CardItem(
@@ -147,7 +180,9 @@ def build_card(
                 warmup,
                 ((warmup_set,) if warmup_set else ()) + planned_working_sets,
                 history_status,
-                max(item.started_at for item in matches).date(),
+                local_date(max(item.started_at for item in matches)),
+                policy.progression,
+                superset_labels.get(canonical),
             )
         )
     display = routine.display_title if routine else title
@@ -177,14 +212,31 @@ def render_card(
 ) -> str:
     blocks = [title]
     if source_date is not None:
-        freshness, stale = freshness_line(source_date, today or datetime.now().astimezone().date())
+        freshness, stale = freshness_line(
+            source_date, today or local_date(datetime.now().astimezone())
+        )
         blocks.append(("⚠ " if stale else "") + freshness)
     for item in items:
-        lines = [item.exercise, "SET   LBS   REPS"]
+        if item.progression == "duration":
+            header = "SET   SECONDS"
+        elif item.progression == "bodyweight_reps":
+            header = "SET   REPS"
+        else:
+            header = "SET   LBS   REPS"
+        lines = [item.exercise, header]
         for planned_set in item.planned_sets:
-            weight = "—" if planned_set.weight is None else f"{planned_set.weight:g}"
-            reps = "—" if planned_set.reps is None else str(planned_set.reps)
-            lines.append(f"{planned_set.number:<5} {weight:<5} {reps}")
+            if item.progression == "duration":
+                duration = planned_set.duration_seconds or 0
+                lines.append(f"{planned_set.number:<5} {duration}")
+            elif item.progression == "bodyweight_reps":
+                reps = "—" if planned_set.reps is None else str(planned_set.reps)
+                lines.append(f"{planned_set.number:<5} {reps}")
+            else:
+                weight = "—" if planned_set.weight is None else f"{planned_set.weight:g}"
+                reps = "—" if planned_set.reps is None else str(planned_set.reps)
+                lines.append(f"{planned_set.number:<5} {weight:<5} {reps}")
+        if item.section_label:
+            blocks.append(item.section_label)
         blocks.append("\n".join(lines))
     return "\n\n".join(blocks) + "\n"
 
@@ -199,11 +251,13 @@ def card_json(title: str, items: list[CardItem], unknown_exercises: tuple[str, .
                 "prescription": item.prescription,
                 "warmup": item.warmup,
                 "history_status": item.history_status,
+                "progression": item.progression,
                 "sets": [
                     {
                         "set": planned_set.number,
                         "weight_lbs": planned_set.weight,
                         "reps": planned_set.reps,
+                        "duration_seconds": planned_set.duration_seconds,
                     }
                     for planned_set in item.planned_sets
                 ],

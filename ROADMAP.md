@@ -12,7 +12,8 @@ Move completed items to [CHANGELOG.md](CHANGELOG.md) when they ship.
 ## Later
 
 - Add an easy way to edit routine and exercise settings without manually changing TOML.
-- Support additional Hevy routine configurations beyond the two configured PF routines.
+- Optionally store the Hevy API key in the operating system credential manager.
+- Support additional Hevy routine configurations beyond the configured PF and bodyweight routines.
 - Add optional trend views for working-set volume, rep progress, and RPE.
 
 ## Ideas

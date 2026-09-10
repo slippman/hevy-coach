@@ -3,7 +3,13 @@ from pathlib import Path
 
 import pytest
 
-from hevy_coach.coach import next_session_target, recommend_all, recommend_exercise, working_sets
+from hevy_coach.coach import (
+    next_duration_target,
+    next_session_target,
+    recommend_all,
+    recommend_exercise,
+    working_sets,
+)
 from hevy_coach.config import load_config, load_routine_policies, resolve_routine
 from hevy_coach.gym_card import build_card, render_card, unknown_routine_exercises
 from hevy_coach.models import Action, SetRecord
@@ -26,7 +32,7 @@ def test_unmarked_sets_are_not_inferred_as_ramp_up_sets() -> None:
     records = [
         item
         for item in read_hevy_csv(FIXTURE)
-        if item.exercise == "Dumbbell Bench Press" and item.routine == "PF:Chest & Arms"
+        if item.exercise == "Dumbbell Bench Press" and item.routine == "Strength A"
     ]
 
     selected = working_sets(records, prescribed_sets=3)
@@ -53,14 +59,155 @@ def test_lighter_first_skullcrusher_set_remains_a_working_set() -> None:
     assert recommendation.action is Action.HOLD_WEIGHT
 
 
-def test_routine_aliases_are_loaded() -> None:
-    back_and_arms = next(
-        routine for routine in load_routine_policies() if routine.title == "PF: Back & Arms"
+def test_routine_names_ignore_spacing_and_punctuation_without_aliases() -> None:
+    routine_b = next(
+        routine for routine in load_routine_policies() if routine.title == "Strength B"
     )
 
-    assert back_and_arms.aliases == ("PF:Back & Arms", "PF:Back& Arms")
-    for title in ("PF: Back & Arms", "PF:Back & Arms", "PF:Back& Arms"):
-        assert resolve_routine(title, load_routine_policies()) == back_and_arms
+    assert routine_b.aliases == ()
+    for title in ("Strength B", "Strength-B", "StrengthB"):
+        assert resolve_routine(title, load_routine_policies()) == routine_b
+
+
+def test_bodyweight_routine_name_variants_and_modalities_are_configured() -> None:
+    routines = load_routine_policies()
+    routine = next(item for item in routines if item.title == "Bodyweight Circuit")
+    _, policies = load_config()
+    configured = {policy.name: policy for policy in policies}
+
+    for title in (
+        "Bodyweight Circuit",
+        "BodyweightCircuit",
+        "Bodyweight-Circuit",
+        "Bodyweight Circuit",
+    ):
+        assert resolve_routine(title, routines) == routine
+    assert routine.exercises == ("Push Up", "Pull Up", "Plank")
+    assert routine.supersets[0].exercises == ("Push Up", "Pull Up")
+    assert configured["Push Up"].progression == "bodyweight_reps"
+    assert configured["Pull Up"].rep_min == 1
+    assert configured["Plank"].progression == "duration"
+
+
+def test_first_bodyweight_and_duration_session_repeat_actual_baseline() -> None:
+    _, policies = load_config()
+    configured = {policy.name: policy for policy in policies}
+    started_at = datetime(2026, 1, 15, 10, tzinfo=UTC)
+    push = [
+        SetRecord(
+            "BodyweightCircuit",
+            started_at,
+            "Push Up",
+            index,
+            "normal",
+            None,
+            10,
+            7 if index == 2 else None,
+        )
+        for index in range(3)
+    ]
+    plank = [
+        SetRecord(
+            "BodyweightCircuit",
+            started_at,
+            "Plank",
+            index,
+            "normal",
+            None,
+            None,
+            None,
+            duration_seconds=seconds,
+        )
+        for index, seconds in enumerate((50, 55, 50))
+    ]
+
+    assert next_session_target(push, configured["Push Up"], "limited") == (
+        None,
+        [10, 10, 10],
+    )
+    assert next_duration_target(plank, configured["Plank"], "limited") == [50, 55, 50]
+
+
+def test_first_bodyweight_and_timed_baselines_can_be_below_configured_minimum() -> None:
+    _, policies = load_config()
+    configured = {policy.name: policy for policy in policies}
+    started_at = datetime(2026, 1, 15, 10, tzinfo=UTC)
+    push = [
+        SetRecord("BodyweightCircuit", started_at, "Push Up", index, "normal", None, 5, None)
+        for index in range(3)
+    ]
+    plank = [
+        SetRecord(
+            "BodyweightCircuit",
+            started_at,
+            "Plank",
+            index,
+            "normal",
+            None,
+            None,
+            None,
+            duration_seconds=20,
+        )
+        for index in range(3)
+    ]
+
+    assert next_session_target(push, configured["Push Up"], "limited") == (None, [5, 5, 5])
+    assert next_duration_target(plank, configured["Plank"], "limited") == [20, 20, 20]
+
+
+def test_established_bodyweight_and_duration_progress_without_weight_logic() -> None:
+    _, policies = load_config()
+    configured = {policy.name: policy for policy in policies}
+    started_at = datetime(2026, 1, 15, 10, tzinfo=UTC)
+    pull = [
+        SetRecord(
+            "BodyweightCircuit",
+            started_at,
+            "Pull Up",
+            index,
+            "normal",
+            None,
+            reps,
+            10 if index == 2 else None,
+        )
+        for index, reps in enumerate((3, 2, 2))
+    ]
+    plank = [
+        SetRecord(
+            "BodyweightCircuit",
+            started_at,
+            "Plank",
+            index,
+            "normal",
+            None,
+            None,
+            None,
+            duration_seconds=seconds,
+        )
+        for index, seconds in enumerate((50, 55, 50))
+    ]
+
+    assert next_session_target(pull, configured["Pull Up"], "established") == (
+        None,
+        [3, 2, 2],
+    )
+    assert next_duration_target(plank, configured["Plank"], "established") == [55, 60, 55]
+    second_pull = [
+        SetRecord(
+            item.routine,
+            item.started_at + timedelta(days=3),
+            item.exercise,
+            item.set_index,
+            item.set_type,
+            item.weight,
+            item.reps,
+            item.rpe,
+        )
+        for item in pull
+    ]
+    assert (
+        recommend_exercise(pull + second_pull, configured["Pull Up"]).action is Action.HOLD_WEIGHT
+    )
 
 
 def _set(
@@ -72,7 +219,7 @@ def _set(
     started_at: datetime,
 ) -> SetRecord:
     return SetRecord(
-        routine="PF:Back& Arms",
+        routine="StrengthB",
         started_at=started_at,
         exercise=exercise,
         set_index=index,
@@ -83,9 +230,9 @@ def _set(
     )
 
 
-def test_first_session_back_and_arms_is_a_conservative_baseline() -> None:
+def test_first_session_routine_is_a_conservative_baseline() -> None:
     _, policies = load_config()
-    routine = next(item for item in load_routine_policies() if item.title == "PF: Back & Arms")
+    routine = next(item for item in load_routine_policies() if item.title == "Strength B")
     started_at = datetime(2024, 1, 1, tzinfo=UTC)
     records = [
         _set("Incline Bench Press (Dumbbell)", 0, 15, 8, None, started_at),
@@ -96,7 +243,7 @@ def test_first_session_back_and_arms_is_a_conservative_baseline() -> None:
     policy = next(item for item in policies if item.name == "Incline Bench Press (Dumbbell)")
 
     recommendation = recommend_exercise(records, policy)
-    title, items = build_card(routine, "PF:Back& Arms", records, policies)
+    title, items = build_card(routine, "StrengthB", records, policies)
 
     assert recommendation.action is Action.HOLD_WEIGHT
     assert recommendation.history_status == "limited"
@@ -141,7 +288,7 @@ def test_bench_above_the_rep_ceiling_increases_from_the_latest_session() -> None
 
 def test_unknown_exercises_are_reported_without_changing_the_routine() -> None:
     _, policies = load_config()
-    routine = next(item for item in load_routine_policies() if item.title == "PF: Back & Arms")
+    routine = next(item for item in load_routine_policies() if item.title == "Strength B")
     started_at = datetime(2024, 1, 1, tzinfo=UTC)
     records = [_set("Temporary Cable Variation", 0, 17, 10, 7, started_at)]
 

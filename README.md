@@ -1,8 +1,8 @@
 # Hevy Coach
 
-Hevy Coach keeps a local, permanent workout history from Hevy CSV exports and turns the latest
-session into a next-workout plan. The SQLite database—not the periodically overwritten CSV—is
-the source of truth.
+Hevy Coach keeps a local workout history from the Hevy Pro API or CSV exports and turns the
+latest session into a next-workout plan. The SQLite database—not an API response or periodically
+overwritten CSV—is the source of truth.
 
 ## Releases
 
@@ -20,6 +20,56 @@ Requires Python 3.11+ and [uv](https://docs.astral.sh/uv/).
 cd ~/dev/hevy-coach
 uv sync --dev
 ```
+
+## Sync with the Hevy Pro API
+
+Hevy's [public API](https://api.hevyapp.com/docs/) is available to Pro subscribers. Get your key
+from [Hevy's developer settings](https://hevy.com/settings?developer), expose it only to the
+current terminal, and sync:
+
+```bash
+export HEVY_API_KEY="paste-your-key-here"
+uv run hevy-coach sync
+```
+
+The key is read from the environment and is never written to the database, logs, or repository.
+Avoid putting it directly in a Git-tracked file. On the first sync, Hevy Coach requests changes
+beginning one day before the newest local workout; an empty database starts with the last 30 days.
+Later runs use a saved cursor and retrieve only workout updates and deletions. Stable Hevy workout
+IDs keep repeated syncs idempotent, and an equivalent existing CSV workout is reused when it can
+be matched unambiguously.
+
+Override the starting point or deliberately backfill the complete account history:
+
+```bash
+uv run hevy-coach sync --since 2026-08-01
+uv run hevy-coach sync --all
+```
+
+`--all` can take longer because Hevy's workout-event pages contain at most ten items. API weights
+are converted from kilograms to pounds and distances from meters to miles before storage so they
+remain compatible with existing coaching configuration and CSV history. Exercise-template metadata
+is cached locally as well. This lets the importer distinguish weighted, bodyweight, and duration
+exercises and preserve Hevy's `superset_id` when the API supplies one; unused API zero values are
+stored as missing values rather than invented `0 lb` loads or zero reps.
+
+### Time zones
+
+Workout timestamps are stored canonically in UTC. Hevy API timestamps already include an offset;
+CSV timestamps do not, so Hevy Coach interprets CSV wall-clock values using `HEVY_TIMEZONE` before
+converting them to UTC. Commands, reports, JSON dates, history, and gym-card freshness convert UTC
+back to the computer's current local timezone. No configuration is normally required.
+
+`HEVY_TIMEZONE` is an optional IANA-timezone override for imports or fixed-location output:
+
+```bash
+export HEVY_TIMEZONE="America/Denver"
+```
+
+When set, the override takes precedence over the system timezone. Database migration 3 converts
+pre-existing CSV timestamps using the timezone active during migration, records that timezone in
+the database, and regenerates workout and set keys while leaving already-correct API timestamps
+unchanged.
 
 ## Import a Hevy export
 
@@ -56,16 +106,18 @@ structured report to standard output.
 
 ## Gym card
 
-The terminal card uses Hevy-style `SET / LBS / REPS` rows. A configured ramp-up
-set appears first; the rows that follow are the next working-set targets.
+The terminal card uses Hevy-style rows: weighted work shows `SET / LBS / REPS`, bodyweight work
+shows `SET / REPS`, and timed work shows `SET / SECONDS`. A configured ramp-up set appears first;
+the rows that follow are the next working-set targets.
 
 Generate a compact phone-friendly prescription from the latest session of a selected routine:
 
 ```bash
 uv run hevy-coach gym-card
-uv run hevy-coach gym-card --workout "PF:Chest & Arms"
-uv run hevy-coach gym-card --workout "PF: Back & Arms"
-uv run hevy-coach gym-card --workout chest --clipboard
+uv run hevy-coach gym-card --workout "Strength A"
+uv run hevy-coach gym-card --workout "Strength B"
+uv run hevy-coach gym-card --workout "Bodyweight Circuit"
+uv run hevy-coach gym-card --workout "Strength A" --clipboard
 uv run hevy-coach gym-card --json
 uv run hevy-coach gym-card --all
 ```
@@ -82,11 +134,12 @@ emits structured JSON only. `--clipboard` cannot be combined with `--stdout` or 
 
 Cards use only the selected workout's latest session, retain the configured exercise order,
 include warm-ups only for exercises configured to require them, and treat early excess normal
-sets as ramp-ups when the configured working-set count makes that unambiguous. Routine display
-names, exercise order, aliases, rep ranges, increments, warm-up behavior, and short canonical
-names live in
-[`src/hevy_coach/default_config.toml`](src/hevy_coach/default_config.toml).
-Routine aliases there allow minor Hevy title spelling changes to use the same gym-card policy.
+sets as ramp-ups when the configured working-set count makes that unambiguous. The tracked
+[`src/hevy_coach/default_config.toml`](src/hevy_coach/default_config.toml) contains generic examples.
+Keep your real workout titles and routine details in `data/config.toml`; Hevy Coach loads that
+private file automatically when using the default database, and Git ignores the entire `data/`
+directory. Spacing and punctuation differences in workout titles match automatically, so routine
+aliases are normally unnecessary.
 For an exercise with only one logged session, cards repeat the logged working-set target as a
 conservative baseline; normal double progression begins after the second session. Exercises not
 in a known routine configuration are skipped and reported for review rather than added
@@ -119,8 +172,8 @@ exercise counts, and set counts.
 and meaningful weighted volume. Distance- and duration-only work remains stored without invented
 volume metrics.
 
-`status` also shows the newest stored workout and the most recent successful import date, making
-it a quick check that your local history is current before generating a gym card.
+`status` also shows the newest stored workout, most recent successful CSV import, and most recent
+API sync, making it a quick check that your local history is current before generating a gym card.
 
 ## Backup and restore
 
@@ -135,12 +188,14 @@ copy. Keep backups outside this repository or in your preferred encrypted backup
 
 ## Progression configuration
 
-[`src/hevy_coach/default_config.toml`](src/hevy_coach/default_config.toml) defines canonical
-exercise names, aliases, working-set counts, coaching categories, rep ranges, increments, and
-optional starting weights. Copy it, edit it, then pass it to reporting:
+[`src/hevy_coach/default_config.toml`](src/hevy_coach/default_config.toml) shows the available
+routine and exercise settings. Copy it to the ignored `data/config.toml` for everyday use, or pass
+another file explicitly:
 
 ```bash
+cp src/hevy_coach/default_config.toml data/config.toml
 uv run hevy-coach report --config my-progression.toml
+uv run hevy-coach gym-card --config my-progression.toml
 ```
 
 Category defaults live under `[defaults.categories]`: compounds are 6–10, isolations are 8–10,
@@ -164,6 +219,29 @@ set `large_increment = true`. The engine then requires two consecutive successfu
 session resets that confirmation streak. For example, the configured Lateral Raise repeats 10 lb
 × 12/12/12 after its first clean ceiling session, then prescribes 15 lb × 8/8/8 after a second
 consecutive clean ceiling session. RPE 10 retains the existing hold or reduce behavior.
+
+Progression mode is exercise-specific. `weighted_reps` is the default; `bodyweight_reps` advances
+reps without interpreting bodyweight as a zero-pound load. `duration` uses configurable seconds:
+
+```toml
+[exercises."Push Up"]
+sets = 3
+min_reps = 8
+max_reps = 15
+progression = "bodyweight_reps"
+
+[exercises."Plank"]
+sets = 3
+progression = "duration"
+min_seconds = 45
+max_seconds = 60
+increment_seconds = 5
+```
+
+The sample bodyweight routine coaches Push-Up, Pull-Up, and Plank while leaving cardio outside the
+progression engine. It also shows how to configure a three-round superset with a rest window. On the
+first logged session, the card repeats the actual baseline; normal progression starts only when
+later history exists.
 
 ## Partial workouts
 
@@ -198,11 +276,11 @@ uv run pytest --cov=hevy_coach --cov-report=term-missing --cov-fail-under=70
 
 ### Release checklist
 
-- [ ] Import the latest Hevy export locally.
+- [ ] Sync the Hevy API or import the latest Hevy export locally.
 - [ ] Run `uv run pytest` and verify coverage is at least 70%.
 - [ ] Run `uv run ruff check .`.
 - [ ] Run `uv run ruff format --check .`.
-- [ ] Verify `uv run hevy-coach gym-card --workout chest --no-clipboard`.
-- [ ] Verify `uv run hevy-coach gym-card --workout chest --clipboard` and confirm the clipboard.
+- [ ] Verify `uv run hevy-coach gym-card --workout "Strength A" --no-clipboard`.
+- [ ] Verify `uv run hevy-coach gym-card --workout "Strength A" --clipboard` and confirm the clipboard.
 - [ ] Move completed user-facing changes from `[Unreleased]` to a dated version in
   [CHANGELOG.md](CHANGELOG.md), then update `pyproject.toml` with the next semantic version.

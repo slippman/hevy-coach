@@ -30,16 +30,14 @@ def test_import_report_status_workout_list_and_exercise_history(tmp_path: Path) 
     workouts = runner.invoke(main, ["workout", "history", "--db", str(db)])
     assert workouts.exit_code == 0, workouts.output
     assert "Date        Workout" in workouts.output
-    assert workouts.output.index("Other Routine") < workouts.output.index("PF:Back & Arms")
+    assert workouts.output.index("Other Routine") < workouts.output.index("Strength-B")
     assert "Exercises" in workouts.output and "Sets" in workouts.output
 
     workout_types = runner.invoke(main, ["workout", "list", "--db", str(db)])
     assert workout_types.exit_code == 0, workout_types.output
     assert "Workout" in workout_types.output and "Sessions" in workout_types.output
     assert "Last done" in workout_types.output and "Total sets" in workout_types.output
-    assert workout_types.output.index("Other Routine") < workout_types.output.index(
-        "PF:Back & Arms"
-    )
+    assert workout_types.output.index("Other Routine") < workout_types.output.index("Strength-B")
 
     history = runner.invoke(main, ["exercise", "history", "Seated Cable Row", "--db", str(db)])
     assert history.exit_code == 0
@@ -58,20 +56,20 @@ def test_report_scopes_recommendations_to_latest_routine_and_refreshes_progressi
     baseline = tmp_path / "baseline.csv"
     baseline.write_text(
         "title,start_time,exercise_title,set_index,set_type,weight_lbs,reps,rpe\n"
-        "PF: Back & Arms,2024-01-01 18:00:00,Incline Bench Press (Dumbbell),0,normal,40,8,7\n"
-        "PF:Chest & Arms,2024-01-02 18:00:00,Dumbbell Bench Press,0,warmup,20,8,5\n"
-        "PF:Chest & Arms,2024-01-02 18:00:00,Dumbbell Bench Press,1,normal,45,8,8\n"
-        "PF:Chest & Arms,2024-01-02 18:00:00,Dumbbell Bench Press,2,normal,45,8,8\n"
-        "PF:Chest & Arms,2024-01-02 18:00:00,Dumbbell Bench Press,3,normal,45,8,8\n",
+        "Strength B,2024-01-01 18:00:00,Incline Bench Press (Dumbbell),0,normal,40,8,7\n"
+        "Strength A,2024-01-02 18:00:00,Dumbbell Bench Press,0,warmup,20,8,5\n"
+        "Strength A,2024-01-02 18:00:00,Dumbbell Bench Press,1,normal,45,8,8\n"
+        "Strength A,2024-01-02 18:00:00,Dumbbell Bench Press,2,normal,45,8,8\n"
+        "Strength A,2024-01-02 18:00:00,Dumbbell Bench Press,3,normal,45,8,8\n",
         encoding="utf-8",
     )
     latest = tmp_path / "latest.csv"
     latest.write_text(
         "title,start_time,exercise_title,set_index,set_type,weight_lbs,reps,rpe\n"
-        "PF:Chest & Arms,2024-01-04 18:00:00,Dumbbell Bench Press,0,warmup,20,8,5\n"
-        "PF:Chest & Arms,2024-01-04 18:00:00,Dumbbell Bench Press,1,normal,45,10,8\n"
-        "PF:Chest & Arms,2024-01-04 18:00:00,Dumbbell Bench Press,2,normal,45,10,8\n"
-        "PF:Chest & Arms,2024-01-04 18:00:00,Dumbbell Bench Press,3,normal,45,10,8\n",
+        "Strength A,2024-01-04 18:00:00,Dumbbell Bench Press,0,warmup,20,8,5\n"
+        "Strength A,2024-01-04 18:00:00,Dumbbell Bench Press,1,normal,45,10,8\n"
+        "Strength A,2024-01-04 18:00:00,Dumbbell Bench Press,2,normal,45,10,8\n"
+        "Strength A,2024-01-04 18:00:00,Dumbbell Bench Press,3,normal,45,10,8\n",
         encoding="utf-8",
     )
 
@@ -85,11 +83,11 @@ def test_report_scopes_recommendations_to_latest_routine_and_refreshes_progressi
     first_bench = json.loads(first.output)["recommendations"][0]
     payload = json.loads(second.output)
     recommendation_names = [item["exercise"] for item in payload["recommendations"]]
-    chest = next(item for item in load_routine_policies() if item.title == "PF:Chest & Arms")
+    routine_a = next(item for item in load_routine_policies() if item.title == "Strength A")
     bench = payload["recommendations"][0]
 
-    assert payload["workout"]["title"] == "PF:Chest & Arms"
-    assert recommendation_names == list(chest.exercises)
+    assert payload["workout"]["title"] == "Strength A"
+    assert recommendation_names == list(routine_a.exercises)
     assert "Incline Bench Press (Dumbbell)" not in recommendation_names
     assert bench["action"] == "increase weight"
     assert bench["weight"] == 50

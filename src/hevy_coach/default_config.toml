@@ -17,18 +17,22 @@ min_reps = 8
 max_reps = 12
 
 [routines]
-names = ["PF:Chest & Arms", "PF: Back & Arms"]
+names = ["Strength A", "Strength B", "Bodyweight Circuit"]
 
-[workouts."PF:Chest & Arms"]
-display_name = "PF: Chest & Arms"
+[workouts."Strength A"]
+display_name = "Strength A"
 exercise_order = ["Bench Press (Dumbbell)", "Seated Cable Row - V Grip (Cable)", "Shoulder Press (Machine Plates)", "Cable Fly Crossovers", "Lateral Raise (Dumbbell)", "Bicep Curl (Dumbbell)", "Triceps Pushdown", "Crunch (Machine)"]
 warmup_set_counts = { "Bench Press (Dumbbell)" = 1, "Seated Cable Row - V Grip (Cable)" = 1, "Shoulder Press (Machine Plates)" = 1 }
 
-[workouts."PF: Back & Arms"]
-display_name = "PF: Back & Arms"
-aliases = ["PF:Back & Arms", "PF:Back& Arms"]
+[workouts."Strength B"]
+display_name = "Strength B"
 exercise_order = ["Incline Bench Press (Dumbbell)", "Lat Pulldown", "Rear Delt Reverse Fly (Machine)", "Hammer Curl (Dumbbell)", "Skullcrusher (Dumbbell)", "Crunch (Machine)", "Back Extension (Machine)"]
 warmup_set_counts = { "Incline Bench Press (Dumbbell)" = 1, "Lat Pulldown" = 1 }
+
+[workouts."Bodyweight Circuit"]
+display_name = "Bodyweight Circuit"
+exercise_order = ["Push Up", "Pull Up", "Plank"]
+supersets = [{ exercises = ["Push Up", "Pull Up"], rest_seconds = [90, 120] }]
 
 [exercises."Bench Press (Dumbbell)"]
 display_name = "Bench Press"
@@ -112,3 +116,30 @@ display_name = "Back Extension"
 aliases = ["Back Extension (Machine)", "Back Extension"]
 category = "core"
 increment_lbs = 10
+
+[exercises."Push Up"]
+display_name = "Push-Up"
+aliases = ["Push-Up"]
+category = "compound"
+sets = 3
+min_reps = 8
+max_reps = 15
+progression = "bodyweight_reps"
+
+[exercises."Pull Up"]
+display_name = "Pull-Up"
+aliases = ["Pull-Up"]
+category = "compound"
+sets = 3
+min_reps = 1
+max_reps = 8
+progression = "bodyweight_reps"
+
+[exercises."Plank"]
+display_name = "Plank"
+category = "core"
+sets = 3
+progression = "duration"
+min_seconds = 45
+max_seconds = 60
+increment_seconds = 5

@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import csv
 from collections.abc import Iterable, Mapping
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 from pathlib import Path
 
 from .models import SetRecord
+from .time_utils import as_utc, local_date, local_timezone
 
 HEADER_ALIASES = {
     "routine": ("title", "routine", "routine_title", "workout_title"),
@@ -56,7 +57,7 @@ def _date(value: str) -> datetime:
     candidate = value.strip().replace("Z", "+00:00")
     try:
         parsed = datetime.fromisoformat(candidate)
-        return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
+        return as_utc(parsed, naive_is_local=True)
     except ValueError:
         for pattern in (
             "%Y-%m-%d %H:%M:%S",
@@ -65,7 +66,10 @@ def _date(value: str) -> datetime:
             "%Y-%m-%d",
         ):
             try:
-                return datetime.strptime(candidate, pattern).replace(tzinfo=UTC)
+                parsed_local = datetime.strptime(candidate, pattern).replace(
+                    tzinfo=local_timezone()
+                )
+                return as_utc(parsed_local)
             except ValueError:
                 pass
     raise HevyCSVError(f"Unsupported date format {value!r}")
@@ -130,4 +134,4 @@ def filter_routines(records: Iterable[SetRecord], routines: Iterable[str]) -> li
 
 def filter_start_date(records: Iterable[SetRecord], start_date: date) -> list[SetRecord]:
     """Keep only sets performed on or after the inclusive calendar date."""
-    return [record for record in records if record.started_at.date() >= start_date]
+    return [record for record in records if local_date(record.started_at) >= start_date]

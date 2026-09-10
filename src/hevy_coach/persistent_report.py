@@ -7,6 +7,7 @@ from dataclasses import asdict
 
 from .coach import recommend_all, working_sets
 from .models import ExercisePolicy, RoutinePolicy, SetRecord
+from .time_utils import as_local, local_date
 
 
 def _weight(value: float | None) -> str:
@@ -73,8 +74,8 @@ def report_payload(
     return {
         "workout": {
             "title": first.routine,
-            "date": first.started_at.date().isoformat(),
-            "start_time": first.started_at.isoformat(),
+            "date": local_date(first.started_at).isoformat(),
+            "start_time": as_local(first.started_at).isoformat(),
             "duration_seconds": duration,
             "exercise_count": len(exercises),
             "set_count": len(records),

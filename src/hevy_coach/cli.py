@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 import click
 
+from .api_sync import sync_workouts
 from .clipboard import Clipboard
 from .coach import working_sets
 from .config import load_config, load_routine_policies, resolve_routine
@@ -22,6 +24,7 @@ from .gym_card import (
     render_card,
     unknown_routine_exercises,
 )
+from .hevy_api import HevyAPI, HevyAPIError
 from .importer import import_csv
 from .persistent_report import dated_filename, markdown, report_payload
 from .query import (
@@ -38,8 +41,17 @@ from .query import (
 )
 from .selector import choose_workout
 from .storage import DEFAULT_DB_PATH, database
+from .time_utils import as_local, as_utc, local_date, timezone_name
 
 clipboard = Clipboard()
+
+
+def _config_for_database(config: Path | None, db: Path) -> Path | None:
+    """Prefer an explicit config, then a private config beside the database."""
+    if config is not None:
+        return config
+    local = db.parent / "config.toml"
+    return local if local.exists() else None
 
 
 def _is_interactive() -> bool:
@@ -73,6 +85,44 @@ def import_command(source: Path, db: Path) -> None:
     )
 
 
+@main.command("sync")
+@click.option(
+    "--since",
+    type=click.DateTime(formats=["%Y-%m-%d", "%Y-%m-%dT%H:%M:%S%z"]),
+    help="override the incremental cursor (inclusive)",
+)
+@click.option("--all", "all_history", is_flag=True, help="sync complete Hevy workout history")
+@_db_option
+def sync_command(since: datetime | None, all_history: bool, db: Path) -> None:
+    """Pull new and changed workouts from the Hevy Pro API."""
+    if since is not None and all_history:
+        raise click.UsageError("--since and --all cannot be combined.")
+    api_key = os.environ.get("HEVY_API_KEY", "").strip()
+    if not api_key:
+        raise click.ClickException(
+            "HEVY_API_KEY is not set. Get your Pro API key at "
+            "https://hevy.com/settings?developer and export it in this terminal."
+        )
+    if all_history:
+        start = datetime(1970, 1, 1, tzinfo=UTC)
+    elif since is not None:
+        start = as_utc(since, naive_is_local=True)
+    else:
+        start = None
+    try:
+        with database(db) as connection:
+            result = sync_workouts(connection, HevyAPI(api_key), since=start)
+    except (HevyAPIError, TypeError, ValueError) as error:
+        raise click.ClickException(str(error)) from error
+    if not result.changed:
+        click.echo("Hevy is already up to date.")
+        return
+    click.echo(
+        f"Synced Hevy: {result.workouts_added} new, {result.workouts_updated} updated, "
+        f"{result.workouts_deleted} deleted workouts."
+    )
+
+
 @main.command()
 @click.option("--latest", is_flag=True, default=True, help="report the newest imported workout")
 @click.option("--clipboard", is_flag=True, help="copy Markdown to the macOS clipboard")
@@ -82,6 +132,7 @@ def import_command(source: Path, db: Path) -> None:
 def report(latest: bool, clipboard: bool, as_json: bool, config: Path | None, db: Path) -> None:
     """Save and print a report for the latest workout."""
     del latest
+    config = _config_for_database(config, db)
     _, policies = load_config(config)
     routines = load_routine_policies(config)
     with database(db) as connection:
@@ -94,7 +145,12 @@ def report(latest: bool, clipboard: bool, as_json: bool, config: Path | None, db
         if routine:
             policy_by_name = {policy.name: policy for policy in policies}
             routine_policies = [policy_by_name[name] for name in routine.exercises]
-            history_records = records_for_workouts(connection, [routine.title, *routine.aliases])
+            matching_titles = [
+                title
+                for title in workout_titles(connection)
+                if resolve_routine(title, [routine]) is not None
+            ]
+            history_records = records_for_workouts(connection, matching_titles)
         else:
             latest_names = {record.exercise.casefold() for record in latest_records}
             routine_policies = [
@@ -180,19 +236,32 @@ def gym_card(
         raise click.UsageError(
             "--clipboard cannot be combined with --stdout, --json, or --no-clipboard."
         )
+    config = _config_for_database(config, db)
     _, policies = load_config(config)
     routines = load_routine_policies(config)
-    configured = {title for routine in routines for title in (routine.title, *routine.aliases)}
     with database(db) as connection:
         titles = workout_titles(connection)
-        visible = titles if include_all else [title for title in titles if title in configured]
+        visible = (
+            titles
+            if include_all
+            else [title for title in titles if resolve_routine(title, routines) is not None]
+        )
         selected = _choose_workout(
             visible if not workout or not include_all else titles, workout, json_output=as_json
         )
     routine = resolve_routine(selected, routines)
     with database(db) as connection:
+        matching_titles = (
+            [
+                title
+                for title in workout_titles(connection)
+                if routine is not None and resolve_routine(title, [routine]) is not None
+            ]
+            if routine
+            else []
+        )
         records = (
-            records_for_workouts(connection, [routine.title, *routine.aliases])
+            records_for_workouts(connection, matching_titles)
             if routine
             else records_for_workout(connection, selected)
         )
@@ -200,10 +269,10 @@ def gym_card(
     if not items:
         raise click.ClickException(f"No configured strength exercises found for {selected!r}.")
     unknown = unknown_routine_exercises(routine, records, policies)
-    source_date = (
-        oldest_card_source_date(items) or max(record.started_at for record in records).date()
+    source_date = oldest_card_source_date(items) or local_date(
+        max(record.started_at for record in records)
     )
-    today = datetime.now().astimezone().date()
+    today = local_date(datetime.now().astimezone())
     _, stale = freshness_line(source_date, today)
     rendered = render_card(title, items, source_date=source_date, today=today)
     if as_json:
@@ -230,7 +299,7 @@ def gym_card(
 
 
 def _show_exercise_history(exercise: str, limit: int, db: Path) -> None:
-    _, policies = load_config()
+    _, policies = load_config(_config_for_database(None, db))
     policy = next(
         (
             item
@@ -247,7 +316,7 @@ def _show_exercise_history(exercise: str, limit: int, db: Path) -> None:
         raise click.ClickException(f"No history found for {exercise!r}.")
     sessions: dict[tuple[str, str], list] = {}
     for record in records:
-        sessions.setdefault((record.started_at.date().isoformat(), record.routine), []).append(
+        sessions.setdefault((local_date(record.started_at).isoformat(), record.routine), []).append(
             record
         )
     rows = []
@@ -297,7 +366,7 @@ def workout_history(limit: int, db: Path) -> None:
     for item in workouts:
         duration = "—" if item.duration_seconds is None else f"{item.duration_seconds // 60} min"
         click.echo(
-            f"{item.started_at.date().isoformat()}  {item.title:{title_width}}  {duration:8}  "
+            f"{local_date(item.started_at).isoformat()}  {item.title:{title_width}}  {duration:8}  "
             f"{item.exercise_count:9}  {item.set_count:4}"
         )
 
@@ -315,7 +384,7 @@ def workout_list(db: Path) -> None:
     for item in types:
         click.echo(
             f"{item.title:{title_width}}  {item.session_count:8}  "
-            f"{item.last_started_at.date().isoformat()}  {item.set_count:10}"
+            f"{local_date(item.last_started_at).isoformat()}  {item.set_count:10}"
         )
 
 
@@ -344,6 +413,9 @@ def status(db: Path) -> None:
         sets = connection.execute("SELECT COUNT(*) FROM sets").fetchone()[0]
         latest_workout = latest_workout_summary(connection)
         latest_import = latest_imported_at(connection)
+        latest_sync = connection.execute(
+            "SELECT synced_at FROM sync_state WHERE provider = 'hevy_api'"
+        ).fetchone()
     lines = [
         f"Database: {db}",
         f"Imports: {imports}",
@@ -355,11 +427,14 @@ def status(db: Path) -> None:
         lines.extend(
             [
                 "",
-                f"Latest workout: {latest_workout.started_at.date().isoformat()} — {latest_workout.title}",
+                f"Latest workout: {local_date(latest_workout.started_at).isoformat()} — {latest_workout.title}",
             ]
         )
     if latest_import:
-        lines.append(f"Latest import: {latest_import.date().isoformat()}")
+        lines.append(f"Latest import: {local_date(latest_import).isoformat()}")
+    if latest_sync:
+        synced_at = as_local(datetime.fromisoformat(latest_sync[0])).isoformat()
+        lines.append(f"Latest API sync: {synced_at} ({timezone_name()})")
     click.echo("\n".join(lines))
 
 
