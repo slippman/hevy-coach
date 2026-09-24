@@ -106,9 +106,10 @@ structured report to standard output.
 
 ## Gym card
 
-The terminal card uses Hevy-style rows: weighted work shows `SET / LBS / REPS`, bodyweight work
-shows `SET / REPS`, and timed work shows `SET / SECONDS`. A configured ramp-up set appears first;
-the rows that follow are the next working-set targets.
+The terminal card puts the entire workout in one compact `Exercise / Warm-up / Working Sets`
+table. Uniform work is collapsed to forms such as `50×6×3`; uneven targets remain explicit, such
+as `25×10/10/6`. Bodyweight and timed work use the same compact layout. This keeps the card short
+enough to scan on a phone between sets.
 
 Generate a compact phone-friendly prescription from the latest session of a selected routine:
 
@@ -118,6 +119,7 @@ uv run hevy-coach gym-card --workout "Strength A"
 uv run hevy-coach gym-card --workout "Strength B"
 uv run hevy-coach gym-card --workout "Bodyweight Circuit"
 uv run hevy-coach gym-card --workout "Strength A" --clipboard
+uv run hevy-coach gym-card --workout "Strength A" --explain
 uv run hevy-coach gym-card --json
 uv run hevy-coach gym-card --all
 ```
@@ -133,8 +135,9 @@ copies the card with `pbcopy`, prints no card, and confirms only on standard err
 emits structured JSON only. `--clipboard` cannot be combined with `--stdout` or `--json`.
 
 Cards use only the selected workout's latest session, retain the configured exercise order,
-include warm-ups only for exercises configured to require them, and treat early excess normal
-sets as ramp-ups when the configured working-set count makes that unambiguous. The tracked
+and include warm-ups only when Hevy labels them or the routine config explicitly provides a
+warm-up count. Extra normal sets remain working sets and never rewrite routine configuration. The
+tracked
 [`src/hevy_coach/default_config.toml`](src/hevy_coach/default_config.toml) contains generic examples.
 Keep your real workout titles and routine details in `data/config.toml`; Hevy Coach loads that
 private file automatically when using the default database, and Git ignores the entire `data/`
@@ -145,14 +148,18 @@ conservative baseline; normal double progression begins after the second session
 in a known routine configuration are skipped and reported for review rather than added
 automatically.
 
-Each card includes the date of the stored workout it is based on. A source workout older than
-seven calendar days shows a warning that the latest Hevy export may not have been imported; this
-does not prevent card generation. Warm-ups are excluded only when Hevy marks them explicitly or
-when the routine config specifies a warm-up count—load changes alone never create a warm-up.
+Each card includes the date of the stored workout it is based on. `--explain` adds a concise
+`COACH'S SUMMARY` above the table, grouping similar decisions while calling out important reasons
+such as high RPE, reaching a rep ceiling, limited history, or confirmation before a large weight
+jump. Structured reasoning categories remain available in JSON. A source workout older than seven
+calendar days is marked as old, but it is only presented as a possible data problem
+when the database has not had a successful API sync in the last 24 hours. An old routine after a
+recent sync simply means you have not performed it lately. Warm-ups are excluded only when Hevy
+marks them explicitly or when the routine config specifies a warm-up count—load changes alone
+never create a warm-up.
 
-For exports that label all ramp-up sets `normal`, the report conservatively treats early excess
-sets as ramp-up sets when there are more normal sets than an exercise’s configured working-set
-count. Explicit Hevy warm-up labels always take precedence.
+For exports that label ramp-up sets `normal`, configure `warmup_set_counts` for the affected
+routine. Load changes alone never cause Hevy Coach to guess that a set was a warm-up.
 
 ## Workout and exercise history
 
@@ -160,17 +167,27 @@ count. Explicit Hevy warm-up labels always take precedence.
 uv run hevy-coach workout list
 uv run hevy-coach workout history
 uv run hevy-coach workout history --limit 15
+uv run hevy-coach workout show 42
+uv run hevy-coach workout show 2026-08-28 --json
+uv run hevy-coach exercise list
+uv run hevy-coach exercise list --search bench
 uv run hevy-coach exercise history "Bench Press (Dumbbell)"
 uv run hevy-coach exercise history "Bench Press (Dumbbell)" --limit 5
 uv run hevy-coach status
 ```
 
 `workout list` shows each unique workout title with its session count, most-recent date, and total
-logged sets. `workout history` shows individual recent sessions with dates, titles, durations,
-exercise counts, and set counts.
-`exercise history` displays prior sessions for one exercise, including reps, last RPE, total reps,
-and meaningful weighted volume. Distance- and duration-only work remains stored without invented
-volume metrics.
+logged sets. `workout history` shows individual recent sessions with stable IDs, dates, titles,
+durations, exercise counts, and set counts. Pass an ID from that list to `workout show` for every
+logged set, including warm-up/working classification, RPE, duration, and any superset identifier.
+A date or title is also accepted; if it matches more than one session, the command asks you to
+choose in an interactive terminal or prints the matching IDs in scripts.
+
+`exercise list` shows the exact stored names and accepts a partial `--search`. `exercise history`
+also accepts configured aliases and display names, suggests a close name after a typo, and splits
+each session into warm-up and working sets. Only working sets contribute to total reps, volume,
+estimated 1RM, and trends. Distance- and duration-only work remains stored without invented volume
+metrics.
 
 `status` also shows the newest stored workout, most recent successful CSV import, and most recent
 API sync, making it a quick check that your local history is current before generating a gym card.
@@ -217,8 +234,17 @@ and resets reps to the range minimum; RPE 9–9.5 repeats the ceiling. For a lar
 set `large_increment = true`. The engine then requires two consecutive successful ceiling sessions
 (all target reps at last-set RPE ≤ 8.5) before increasing load. A missed ceiling or higher-RPE
 session resets that confirmation streak. For example, the configured Lateral Raise repeats 10 lb
-× 12/12/12 after its first clean ceiling session, then prescribes 15 lb × 8/8/8 after a second
+× 10/10/10 after its first clean ceiling session, then prescribes 15 lb × 8/8/8 after a second
 consecutive clean ceiling session. RPE 10 retains the existing hold or reduce behavior.
+
+An exercise can keep its usual set count in most routines while using an explicit override in one
+routine. This is a deliberate programming choice; Hevy Coach never changes it merely because an
+extra set appeared in workout history:
+
+```toml
+[workouts."Strength A"]
+working_set_counts = { "Crunch (Machine)" = 4 }
+```
 
 Progression mode is exercise-specific. `weighted_reps` is the default; `bodyweight_reps` advances
 reps without interpreting bodyweight as a zero-pound load. `duration` uses configurable seconds:

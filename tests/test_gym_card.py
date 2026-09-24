@@ -9,7 +9,7 @@ from click.testing import CliRunner
 
 from hevy_coach.cli import main
 from hevy_coach.config import load_config, load_routine_policies
-from hevy_coach.gym_card import build_card, freshness_line, render_card
+from hevy_coach.gym_card import CardItem, CardSet, build_card, freshness_line, render_card
 from hevy_coach.importer import import_csv
 from hevy_coach.models import SetRecord
 from hevy_coach.query import records_for_workout
@@ -100,6 +100,7 @@ names = ["Private Routine"]
 [workouts."Private Routine"]
 display_name = "My Workout"
 exercise_order = ["Bench Press (Dumbbell)"]
+working_set_counts = { "Bench Press (Dumbbell)" = 4 }
 [exercises."Bench Press (Dumbbell)"]
 aliases = ["Dumbbell Bench Press"]
 """,
@@ -110,7 +111,7 @@ aliases = ["Dumbbell Bench Press"]
         "title,start_time,exercise_title,set_index,set_type,weight_lbs,reps,rpe\n"
         + "".join(
             f"Private Routine,2026-01-15 10:00:00,Dumbbell Bench Press,{index},normal,40,8,8\n"
-            for index in range(3)
+            for index in range(4)
         ),
         encoding="utf-8",
     )
@@ -122,6 +123,7 @@ aliases = ["Dumbbell Bench Press"]
 
     assert result.exit_code == 0, result.output
     assert result.output.startswith("My Workout\n")
+    assert "40×8×4" in result.output
 
 
 @pytest.mark.parametrize("title", ["Strength B", "Strength-B", "StrengthB"])
@@ -211,6 +213,7 @@ def test_json_conflicts_and_deterministic_format(tmp_path: Path) -> None:
 
     payload = json.loads(structured.stdout)
     assert payload["workout"] == "Strength A"
+    assert payload["exercises"][0]["reasoning_category"]
     assert payload["exercises"][0]["sets"][0] == {
         "set": 1,
         "weight_lbs": 20.0,
@@ -221,6 +224,51 @@ def test_json_conflicts_and_deterministic_format(tmp_path: Path) -> None:
     assert conflict.exit_code != 0 and "cannot be combined" in conflict.output
     assert first.output == second.output
     assert first.output.endswith("\n") and not first.output.endswith("\n\n")
+
+
+def test_explained_card_groups_similar_decisions_above_one_compact_table() -> None:
+    items = [
+        CardItem(
+            "Row",
+            105,
+            "",
+            planned_sets=tuple(CardSet(index, 105, 10) for index in range(1, 4)),
+            reasoning_category="HOLD",
+            last_weight=105,
+            last_reps=(10, 10, 10),
+            last_rpe=10,
+        ),
+        CardItem(
+            "Shoulder Press",
+            70,
+            "",
+            planned_sets=tuple(CardSet(index, 70, 10) for index in range(1, 4)),
+            reasoning_category="HOLD",
+            last_weight=70,
+            last_reps=(10, 10, 10),
+            last_rpe=10,
+        ),
+        CardItem(
+            "Cable Fly",
+            15,
+            "",
+            planned_sets=tuple(CardSet(index, 15, 10) for index in range(1, 4)),
+            reasoning_category="ADD_REPS",
+            last_weight=15,
+            last_reps=(9, 9, 9),
+            last_rpe=9,
+        ),
+    ]
+
+    explained = render_card("Strength", items, explain=True)
+    plain = render_card("Strength", items)
+
+    assert "Row and Shoulder Press stay put" in explained
+    assert "Cable Fly adds reps" in explained
+    assert explained.count("WORKOUT") == 1
+    assert "105×10×3" in explained and "15×10×3" in explained
+    assert "COACH'S SUMMARY" not in plain
+    assert "WORKOUT" in plain
 
 
 def test_card_order_and_configured_warmups(tmp_path: Path) -> None:
@@ -235,8 +283,8 @@ def test_card_order_and_configured_warmups(tmp_path: Path) -> None:
     rendered = render_card(title, items)
 
     assert [item.exercise for item in items][:3] == ["Bench Press", "Shoulder Press", "Cable Fly"]
-    assert "Bench Press\nSET   LBS   REPS\n1     20    10\n2     50    8" in rendered
-    assert "Cable Fly\nSET   LBS   REPS\n1     15" in rendered
+    assert "Bench Press" in rendered and "20×10" in rendered and "50×8×3" in rendered
+    assert "Cable Fly" in rendered and "15×10×3" in rendered
     assert "Warm-up:" not in rendered
 
 
@@ -279,8 +327,8 @@ def test_gym_card_uses_each_exercises_latest_session_after_partial_workouts(
         "Cable Fly",
         "Lateral Raise",
     ]
-    assert "Cable Fly\nSET   LBS   REPS\n1     10    10" in rendered
-    assert "Lateral Raise\nSET   LBS   REPS\n1     10    12" in rendered
+    assert "Cable Fly" in rendered and "10×10×3" in rendered
+    assert "Lateral Raise" in rendered and "10×10×3" in rendered
 
 
 def test_workout_history_keeps_partial_sessions_separate(tmp_path: Path) -> None:
@@ -343,9 +391,9 @@ def test_sprint_card_uses_bodyweight_duration_and_configured_superset() -> None:
 
     assert [item.exercise for item in items] == ["Push-Up", "Pull-Up", "Plank"]
     assert "SUPERSET · 3 ROUNDS · Push-Up → Pull-Up · REST 90–120 SEC" in rendered
-    assert "Push-Up\nSET   REPS\n1     10\n2     10\n3     10" in rendered
-    assert "Pull-Up\nSET   REPS\n1     3\n2     2\n3     2" in rendered
-    assert "Plank\nSET   SECONDS\n1     50\n2     55\n3     50" in rendered
+    assert "Push-Up" in rendered and "10×3 reps" in rendered
+    assert "Pull-Up" in rendered and "3/2/2 reps" in rendered
+    assert "Plank" in rendered and "50s/55s/50s" in rendered
     assert "0 lb" not in rendered
 
 
@@ -473,3 +521,69 @@ def test_card_uses_selected_routine_date_and_surfaces_staleness_in_clipboard_mod
     assert 'Copied "Strength B" gym card to clipboard.' in result.stderr
     assert "Some exercise history may be stale." in result.stderr
     assert "⚠ Based on: Aug 4, 2026 (8 days ago)" in mock_copy.call_args.args[0]
+
+
+def test_gym_card_explain_uses_the_same_hold_decision_as_the_card(tmp_path: Path) -> None:
+    source = tmp_path / "explain.csv"
+    source.write_text(
+        "title,start_time,exercise_title,set_index,set_type,weight_lbs,reps,rpe\n"
+        + "".join(
+            f"Strength A,2026-01-0{session} 08:00:00,Dumbbell Bench Press,{index},normal,"
+            f"{'25,8,5' if index == 0 else '45,10,9'}\n"
+            for session in (1, 4)
+            for index in range(4)
+        ),
+        encoding="utf-8",
+    )
+    db = tmp_path / "hevy.db"
+    with database(db) as connection:
+        import_csv(connection, source, db.parent / "imports")
+
+    result = CliRunner().invoke(
+        main,
+        ["gym-card", "--workout", "Strength A", "--explain", "--db", str(db)],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "45" in result.output
+    assert "COACH'S SUMMARY" in result.output
+    assert "Bench Press repeats 45×10×3" in result.output
+    assert "last session reached RPE 9" in result.output
+    assert result.output.count("Bench Press") == 2
+
+
+@patch("hevy_coach.cli.datetime")
+def test_recent_api_sync_distinguishes_old_routine_from_stale_database(
+    mock_datetime, tmp_path: Path
+) -> None:
+    now = datetime(2026, 8, 20, 12, tzinfo=UTC)
+    mock_datetime.now.return_value = now
+    source = tmp_path / "old.csv"
+    source.write_text(
+        "title,start_time,exercise_title,set_index,set_type,weight_lbs,reps,rpe\n"
+        "Strength A,2026-08-01 08:00:00,Dumbbell Bench Press,0,normal,45,8,8\n"
+        "Strength A,2026-08-01 08:00:00,Dumbbell Bench Press,1,normal,45,8,8\n"
+        "Strength A,2026-08-01 08:00:00,Dumbbell Bench Press,2,normal,45,8,8\n",
+        encoding="utf-8",
+    )
+    db = tmp_path / "hevy.db"
+    with database(db) as connection:
+        import_csv(connection, source, db.parent / "imports")
+        connection.execute(
+            "INSERT INTO sync_state(provider, cursor, synced_at) VALUES (?, ?, ?)",
+            ("hevy_api", now.isoformat(), now.isoformat()),
+        )
+        connection.commit()
+
+    runner = CliRunner()
+    card = runner.invoke(main, ["gym-card", "--workout", "Strength A", "--db", str(db)])
+    result = runner.invoke(main, ["gym-card", "--workout", "Strength A", "--json", "--db", str(db)])
+
+    assert card.exit_code == 0, card.output
+    assert "Based on: Aug 1, 2026 (19 days ago)" in card.stdout
+    assert "⚠" not in card.stdout
+    assert "stale" not in card.stderr.casefold()
+    payload = json.loads(result.output)
+    assert payload["routine_session_old"] is True
+    assert payload["database_sync_fresh"] is True
+    assert payload["history_may_be_stale"] is False

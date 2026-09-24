@@ -76,7 +76,7 @@ display_name = "Lateral Raise"
 aliases = ["Lateral Raise", "Dumbbell Lateral Raise"]
 category = "isolation"
 min_reps = 8
-max_reps = 12
+max_reps = 10
 large_increment = true
 
 [exercises."Bicep Curl (Dumbbell)"]

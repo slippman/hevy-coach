@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from collections import OrderedDict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime
 
-from .coach import _matches, next_duration_target, next_session_target, working_sets
+from .coach import _matches, exercise_decision, working_sets
 from .models import ExercisePolicy, RoutinePolicy, SetRecord
 from .time_utils import local_date
 
@@ -22,6 +22,14 @@ class CardItem:
     source_date: date | None = None
     progression: str = "weighted_reps"
     section_label: str | None = None
+    reasoning_category: str = ""
+    explanation: str = ""
+    last_weight: float | None = None
+    last_reps: tuple[int, ...] = ()
+    last_durations: tuple[int, ...] = ()
+    last_rpe: float | None = None
+    rep_min: int | None = None
+    rep_max: int | None = None
 
 
 @dataclass(frozen=True)
@@ -103,7 +111,10 @@ def build_card(
                 if name in policy_by_name
             ]
             if names:
-                rounds = max(policy_by_name[name].sets for name in superset.exercises)
+                rounds = max(
+                    routine.working_set_count(name, policy_by_name[name].sets)
+                    for name in superset.exercises
+                )
                 superset_labels[superset.exercises[0]] = (
                     f"SUPERSET · {rounds} ROUNDS · {' → '.join(names)} · "
                     f"REST {superset.rest_min_seconds}–{superset.rest_max_seconds} SEC"
@@ -112,6 +123,8 @@ def build_card(
         policy = next((item for item in policies if item.name == canonical), None)
         if policy is None:
             continue
+        if routine:
+            policy = replace(policy, sets=routine.working_set_count(canonical, policy.sets))
         matches = (
             _latest_exercise_session(records, policy)
             if routine
@@ -145,16 +158,16 @@ def build_card(
             if first.weight is not None and first.reps is not None:
                 warmup = f"{first.weight:g} lb × {first.reps}"
                 warmup_set = CardSet(1, first.weight, first.reps)
+        decision = exercise_decision(records, policy, warmup_set_count)
         if policy.progression == "duration":
-            weight = None
-            target_reps: list[int] = []
-            target_durations = next_duration_target(selected, policy, history_status)
+            weight = decision.target_weight
+            target_reps: tuple[int, ...] = ()
+            target_durations = decision.target_durations
             prescription = "/".join(f"{value}s" for value in target_durations)
         else:
-            weight, target_reps = next_session_target(
-                selected, policy, history_status, records, warmup_set_count
-            )
-            target_durations = []
+            weight = decision.target_weight
+            target_reps = decision.target_reps
+            target_durations = ()
             prescription = (
                 f"{len(target_reps)}×{target_reps[0]}"
                 if target_reps and len(set(target_reps)) == 1
@@ -183,6 +196,14 @@ def build_card(
                 local_date(max(item.started_at for item in matches)),
                 policy.progression,
                 superset_labels.get(canonical),
+                decision.reasoning_category.value,
+                decision.explanation,
+                decision.last_weight,
+                decision.last_reps,
+                decision.last_durations,
+                decision.last_rpe,
+                decision.rep_min,
+                decision.rep_max,
             )
         )
     display = routine.display_title if routine else title
@@ -209,36 +230,169 @@ def render_card(
     items: list[CardItem],
     source_date: date | None = None,
     today: date | None = None,
+    explain: bool = False,
+    warn_if_old: bool = True,
 ) -> str:
     blocks = [title]
     if source_date is not None:
         freshness, stale = freshness_line(
             source_date, today or local_date(datetime.now().astimezone())
         )
-        blocks.append(("⚠ " if stale else "") + freshness)
-    for item in items:
-        if item.progression == "duration":
-            header = "SET   SECONDS"
-        elif item.progression == "bodyweight_reps":
-            header = "SET   REPS"
-        else:
-            header = "SET   LBS   REPS"
-        lines = [item.exercise, header]
-        for planned_set in item.planned_sets:
-            if item.progression == "duration":
-                duration = planned_set.duration_seconds or 0
-                lines.append(f"{planned_set.number:<5} {duration}")
-            elif item.progression == "bodyweight_reps":
-                reps = "—" if planned_set.reps is None else str(planned_set.reps)
-                lines.append(f"{planned_set.number:<5} {reps}")
-            else:
-                weight = "—" if planned_set.weight is None else f"{planned_set.weight:g}"
-                reps = "—" if planned_set.reps is None else str(planned_set.reps)
-                lines.append(f"{planned_set.number:<5} {weight:<5} {reps}")
-        if item.section_label:
-            blocks.append(item.section_label)
-        blocks.append("\n".join(lines))
+        blocks.append(("⚠ " if stale and warn_if_old else "") + freshness)
+    if explain:
+        blocks.append("COACH'S SUMMARY\n" + "\n".join(_coach_summary(items)))
+    blocks.append(_workout_table(items))
+    section_labels = list(dict.fromkeys(item.section_label for item in items if item.section_label))
+    if section_labels:
+        blocks.append("\n".join(section_labels))
     return "\n\n".join(blocks) + "\n"
+
+
+def _join_names(names: list[str]) -> str:
+    if len(names) == 1:
+        return names[0]
+    if len(names) == 2:
+        return f"{names[0]} and {names[1]}"
+    return f"{', '.join(names[:-1])}, and {names[-1]}"
+
+
+def _compact_values(values: tuple[int, ...], suffix: str = "") -> str:
+    if not values:
+        return "—"
+    if len(set(values)) == 1:
+        return f"{values[0]}{suffix}×{len(values)}"
+    return "/".join(f"{value}{suffix}" for value in values)
+
+
+def _compact_last(item: CardItem) -> str:
+    if item.last_durations:
+        return _compact_values(item.last_durations, "s")
+    reps = _compact_values(item.last_reps)
+    if item.progression == "bodyweight_reps" or item.last_weight is None:
+        return f"{reps} reps"
+    return f"{item.last_weight:g}×{reps}"
+
+
+def _compact_target(item: CardItem) -> str:
+    working = item.planned_sets[1:] if item.warmup else item.planned_sets
+    if item.progression == "duration":
+        values = tuple(item.duration_seconds or 0 for item in working)
+        return _compact_values(values, "s")
+    reps = tuple(item.reps or 0 for item in working)
+    compact_reps = _compact_values(reps)
+    if item.progression == "bodyweight_reps":
+        return f"{compact_reps} reps"
+    weights = tuple(item.weight for item in working)
+    if weights and all(weight == weights[0] for weight in weights) and weights[0] is not None:
+        return f"{weights[0]:g}×{compact_reps}"
+    return "/".join(
+        f"{planned.weight:g}×{planned.reps}"
+        if planned.weight is not None and planned.reps is not None
+        else "—"
+        for planned in working
+    )
+
+
+def _coach_summary(items: list[CardItem]) -> list[str]:
+    lines: list[str] = []
+    by_reason: dict[str, list[CardItem]] = {}
+    for item in items:
+        by_reason.setdefault(item.reasoning_category, []).append(item)
+
+    for item in by_reason.get("WEIGHT_UP", []):
+        rpe = "" if item.last_rpe is None else f" at RPE {item.last_rpe:g}"
+        ceiling = (
+            ""
+            if item.rep_min is None or item.rep_max is None
+            else f", the top of your {item.rep_min}–{item.rep_max} rep range"
+        )
+        lines.append(
+            f"{item.exercise} moves up to {item.weight:g} lb because you reached "
+            f"{_compact_last(item)}{rpe}{ceiling}."
+        )
+
+    uniform_holds = [
+        item
+        for item in by_reason.get("HOLD", [])
+        if item.last_reps and len(set(item.last_reps)) == 1 and item.last_rpe is not None
+    ]
+    grouped_holds: set[str] = set()
+    for rpe in dict.fromkeys(item.last_rpe for item in uniform_holds):
+        group = [item for item in uniform_holds if item.last_rpe == rpe]
+        if len(group) > 1:
+            lines.append(
+                f"{_join_names([item.exercise for item in group])} stay put because their "
+                f"last sets reached RPE {rpe:g}."
+            )
+            grouped_holds.update(item.exercise for item in group)
+
+    add_reps = by_reason.get("ADD_REPS", [])
+    if add_reps:
+        verb = "adds" if len(add_reps) == 1 else "add"
+        lines.append(
+            f"{_join_names([item.exercise for item in add_reps])} {verb} reps while keeping the "
+            "same weight and building toward their rep ceilings."
+        )
+
+    for item in by_reason.get("CONFIRM", []):
+        lines.append(
+            f"{item.exercise} repeats {_compact_target(item)} once more before the large jump "
+            "in weight."
+        )
+
+    for item in by_reason.get("HOLD", []):
+        if item.exercise in grouped_holds:
+            continue
+        rpe = (
+            ""
+            if item.last_rpe is None
+            else f" because the last session reached RPE {item.last_rpe:g}"
+        )
+        lines.append(f"{item.exercise} repeats {_compact_target(item)}{rpe}.")
+
+    limited = by_reason.get("LIMITED_HISTORY", [])
+    if limited:
+        verb = "repeats" if len(limited) == 1 else "repeat"
+        pronoun = "its" if len(limited) == 1 else "their"
+        noun = "baseline" if len(limited) == 1 else "baselines"
+        lines.append(
+            f"{_join_names([item.exercise for item in limited])} {verb} {pronoun} {noun} because "
+            "only one session is available."
+        )
+    for item in by_reason.get("WEIGHT_DOWN", []):
+        lines.append(
+            f"{item.exercise} reduces to {_compact_target(item)} after the last set was too hard."
+        )
+    add_time = by_reason.get("ADD_TIME", [])
+    if add_time:
+        verb = "adds" if len(add_time) == 1 else "add"
+        lines.append(
+            f"{_join_names([item.exercise for item in add_time])} {verb} time while keeping the "
+            "same exercise setup."
+        )
+    return lines
+
+
+def _workout_table(items: list[CardItem]) -> str:
+    rows = []
+    for item in items:
+        warmup = "—"
+        if item.warmup and item.planned_sets:
+            first = item.planned_sets[0]
+            if first.weight is not None and first.reps is not None:
+                warmup = f"{first.weight:g}×{first.reps}"
+        rows.append((item.exercise, warmup, _compact_target(item)))
+    exercise_width = max(len("Exercise"), *(len(row[0]) for row in rows))
+    warmup_width = max(len("Warm-up"), *(len(row[1]) for row in rows))
+    lines = [
+        "WORKOUT",
+        f"{'Exercise':{exercise_width}}  {'Warm-up':{warmup_width}}  Working Sets",
+    ]
+    lines.extend(
+        f"{exercise:{exercise_width}}  {warmup:{warmup_width}}  {working}"
+        for exercise, warmup, working in rows
+    )
+    return "\n".join(lines)
 
 
 def card_json(title: str, items: list[CardItem], unknown_exercises: tuple[str, ...] = ()) -> dict:
@@ -252,6 +406,14 @@ def card_json(title: str, items: list[CardItem], unknown_exercises: tuple[str, .
                 "warmup": item.warmup,
                 "history_status": item.history_status,
                 "progression": item.progression,
+                "reasoning_category": item.reasoning_category,
+                "explanation": item.explanation,
+                "last_performance": {
+                    "weight_lbs": item.last_weight,
+                    "reps": list(item.last_reps),
+                    "duration_seconds": list(item.last_durations),
+                    "rpe": item.last_rpe,
+                },
                 "sets": [
                     {
                         "set": planned_set.number,

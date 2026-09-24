@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import OrderedDict
-from dataclasses import asdict
+from dataclasses import asdict, replace
 
 from .coach import recommend_all, working_sets
 from .models import ExercisePolicy, RoutinePolicy, SetRecord
@@ -39,12 +39,18 @@ def report_payload(
     if not records:
         raise ValueError("No imported workouts available; run `hevy-coach import PATH` first.")
     first = records[0]
+    effective_policies = [
+        replace(policy, sets=routine.working_set_count(policy.name, policy.sets))
+        if routine
+        else policy
+        for policy in policies
+    ]
     exercises = []
     for title, sets in _group(records).items():
         policy = next(
             (
                 item
-                for item in policies
+                for item in effective_policies
                 if title.casefold()
                 in {item.name.casefold(), *(alias.casefold() for alias in item.aliases)}
             ),
@@ -66,7 +72,7 @@ def report_payload(
         {**asdict(item), "action": item.action.value}
         for item in recommend_all(
             history_records or records,
-            policies,
+            effective_policies,
             dict(routine.warmup_set_counts) if routine else None,
         )
     ]

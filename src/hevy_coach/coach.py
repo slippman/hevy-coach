@@ -2,7 +2,14 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from .models import Action, ExercisePolicy, Recommendation, SetRecord
+from .models import (
+    Action,
+    DecisionReason,
+    ExerciseDecision,
+    ExercisePolicy,
+    Recommendation,
+    SetRecord,
+)
 from .time_utils import local_date
 
 
@@ -107,7 +114,7 @@ def next_session_target(
     if not logged:
         return weight, [policy.rep_min] * policy.sets
     if history_status == "limited" and policy.progression == "bodyweight_reps":
-        return None, logged[: policy.sets]
+        return None, [min(policy.rep_max, rep) for rep in logged[: policy.sets]]
     reps = [min(policy.rep_max, max(policy.rep_min, rep)) for rep in logged[: policy.sets]]
     if history_status == "limited":
         return weight, reps
@@ -122,6 +129,12 @@ def next_session_target(
         lowest = min(range(len(reps)), key=reps.__getitem__)
         reps[lowest] = min(policy.rep_max, reps[lowest] + 1)
         return None, reps
+    if last_rpe is not None and last_rpe >= 9.5:
+        if min(logged) <= policy.rep_min - 3:
+            return (max(0.0, weight - policy.increment) if weight is not None else None), [
+                policy.rep_min
+            ] * policy.sets
+        return weight, [min(policy.rep_max, rep) for rep in logged[: policy.sets]]
     at_ceiling = len(reps) >= policy.sets and all(rep >= policy.rep_max for rep in reps)
     if at_ceiling:
         if last_rpe is not None and last_rpe <= 8.5 and not policy.large_increment:
@@ -153,7 +166,7 @@ def next_duration_target(
     if not logged:
         return [minimum] * policy.sets
     if history_status == "limited":
-        return logged[: policy.sets]
+        return [min(maximum, value) for value in logged[: policy.sets]]
     durations = [min(maximum, max(minimum, value)) for value in logged[: policy.sets]]
     last_rpe = next((item.rpe for item in reversed(sets) if item.rpe is not None), None)
     if last_rpe is not None and last_rpe >= 9.5:
@@ -200,9 +213,15 @@ def recommend_exercise(
     if policy.progression == "duration":
         durations = next_duration_target(sets, policy, history_status)
         target = "/".join(str(value) for value in durations)
+        logged_durations = [
+            min(policy.duration_max_seconds or value, value)
+            for value in (item.duration_seconds for item in sets)
+            if value is not None
+        ][: policy.sets]
+        should_hold = history_status == "limited" or durations == logged_durations
         return Recommendation(
             policy.name,
-            Action.HOLD_WEIGHT if history_status == "limited" else Action.ADD_REPS,
+            Action.HOLD_WEIGHT if should_hold else Action.ADD_REPS,
             None,
             f"Hold for {target} seconds.",
             evidence,
@@ -240,7 +259,8 @@ def recommend_exercise(
 
     label = _fmt_weight(weight)
     if history_status == "limited":
-        target = "/".join(str(rep) for rep in reps[: policy.sets])
+        _, target_reps = next_session_target(sets, policy, history_status)
+        target = "/".join(str(rep) for rep in target_reps)
         return Recommendation(
             policy.name,
             Action.HOLD_WEIGHT,
@@ -273,11 +293,10 @@ def recommend_exercise(
 
     completed_sets = len(reps) >= policy.sets
     range_topped = completed_sets and all(rep >= policy.rep_max for rep in reps[: policy.sets])
-    exactly_at_ceiling = range_topped and all(rep == policy.rep_max for rep in reps[: policy.sets])
-    if exactly_at_ceiling and policy.increase_requires_confirmation:
+    if range_topped and policy.increase_requires_confirmation:
         return Recommendation(
             policy.name,
-            Action.ADD_REPS,
+            Action.HOLD_WEIGHT,
             weight,
             f"Keep {label} lb; confirm {policy.sets}×{policy.rep_max} once more before increasing.",
             evidence,
@@ -309,6 +328,14 @@ def recommend_exercise(
             Action.INCREASE_WEIGHT,
             next_weight,
             f"Increase one increment to {_fmt_weight(next_weight)} lb next time.",
+            evidence,
+        )
+    if range_topped:
+        return Recommendation(
+            policy.name,
+            Action.HOLD_WEIGHT,
+            weight,
+            f"Keep {label} lb; repeat {policy.sets}×{policy.rep_max} before increasing.",
             evidence,
         )
 
@@ -344,6 +371,138 @@ def recommend_exercise(
     else:
         message = f"Keep {label} lb; build toward {policy.sets}×{policy.rep_max}."
     return Recommendation(policy.name, Action.ADD_REPS, weight, message, evidence)
+
+
+def _last_performance(sets: list[SetRecord], policy: ExercisePolicy) -> str:
+    last_rpe = next((item.rpe for item in reversed(sets) if item.rpe is not None), None)
+    rpe = "" if last_rpe is None else f" at RPE {last_rpe:g}"
+    if policy.progression == "duration":
+        values = [item.duration_seconds for item in sets if item.duration_seconds is not None]
+        if len(set(values)) == 1:
+            return f"{values[0]} seconds for all {len(values)} sets{rpe}"
+        return f"{'/'.join(str(value) for value in values)} seconds{rpe}"
+    reps = [item.reps for item in sets if item.reps is not None]
+    if not reps:
+        return "an incomplete set entry"
+    uniform = len(set(reps)) == 1
+    rep_text = f"{reps[0]} for all {len(reps)} sets" if uniform else "/".join(map(str, reps))
+    if policy.progression == "bodyweight_reps":
+        return f"{rep_text} reps{rpe}"
+    weighted = [(item.weight, item.reps) for item in sets if item.reps is not None]
+    weights = [weight for weight, _ in weighted if weight is not None]
+    if weights and len(weights) == len(weighted) and len(set(weights)) == 1:
+        return f"{_fmt_weight(weights[0])} lb × {rep_text}{rpe}"
+    details = ", ".join(
+        f"{_fmt_weight(weight)} lb × {reps}" if weight is not None else f"{reps} reps"
+        for weight, reps in weighted
+    )
+    return f"{details}{rpe}"
+
+
+def _target_description(
+    weight: float | None,
+    reps: tuple[int, ...],
+    durations: tuple[int, ...],
+    policy: ExercisePolicy,
+) -> str:
+    if durations:
+        values = (
+            f"{durations[0]} seconds for all {len(durations)} sets"
+            if len(set(durations)) == 1
+            else f"{'/'.join(map(str, durations))} seconds"
+        )
+        return values
+    uniform = reps and len(set(reps)) == 1
+    rep_values = f"{reps[0]} for all {len(reps)} sets" if uniform else "/".join(map(str, reps))
+    if policy.progression == "bodyweight_reps" or weight is None:
+        return f"{rep_values} reps"
+    return f"{_fmt_weight(weight)} lb × {rep_values}"
+
+
+def exercise_decision(
+    records: Iterable[SetRecord], policy: ExercisePolicy, warmup_set_count: int = 0
+) -> ExerciseDecision:
+    """Return targets and a concise explanation from one recommendation decision."""
+    materialized = list(records)
+    sets = _latest_working_sets(materialized, policy, warmup_set_count)
+    history_status = "limited" if _session_count(materialized, policy) <= 1 else "established"
+    recommendation = recommend_exercise(materialized, policy, warmup_set_count)
+    if policy.progression == "duration":
+        durations = tuple(next_duration_target(sets, policy, history_status))
+        weight = None
+        reps: tuple[int, ...] = ()
+    else:
+        weight, target_reps = next_session_target(
+            sets, policy, history_status, materialized, warmup_set_count
+        )
+        reps = tuple(min(policy.rep_max, rep) for rep in target_reps)
+        durations = ()
+
+    last = _last_performance(sets, policy) if sets else "no prior working sets"
+    last_sentence = f"Last time you completed {last}."
+    target = _target_description(weight, reps, durations, policy)
+    if history_status == "limited":
+        reason = DecisionReason.LIMITED_HISTORY
+        explanation = (
+            f"Baseline repeated: {last_sentence} With only one session available, repeat {target} "
+            "before progressing."
+        )
+    elif policy.large_increment and "large weight jump" in recommendation.message:
+        reason = DecisionReason.CONFIRM
+        explanation = (
+            f"Large-jump confirmation: {last_sentence} You reached the top of your "
+            f"{policy.rep_min}–{policy.rep_max} rep range, but the next available weight is a "
+            f"large jump. Repeat {target} successfully once more before increasing the weight."
+        )
+    elif recommendation.action is Action.INCREASE_WEIGHT:
+        reason = DecisionReason.WEIGHT_UP
+        explanation = (
+            f"Weight increased: {last_sentence} You reached the top of your "
+            f"{policy.rep_min}–{policy.rep_max} rep range with room left, so move up to {target}."
+        )
+    elif recommendation.action is Action.REDUCE_WEIGHT:
+        reason = DecisionReason.WEIGHT_DOWN
+        explanation = (
+            f"Weight reduced: {last_sentence} Reduce the load to {target} so you can rebuild "
+            "the target reps with clean form."
+        )
+    elif recommendation.action is Action.ADD_REPS:
+        reason = (
+            DecisionReason.ADD_TIME if policy.progression == "duration" else DecisionReason.ADD_REPS
+        )
+        label = "Adding time" if policy.progression == "duration" else "Adding reps"
+        explanation = (
+            f"{label}: {last_sentence} Keep the same resistance and aim for {target}; you are "
+            f"still building toward the top of your {policy.rep_min}–{policy.rep_max} rep range."
+            if policy.progression != "duration"
+            else f"{label}: {last_sentence} Keep the same exercise and aim for {target}."
+        )
+    else:
+        reason = DecisionReason.HOLD
+        last_rpe = next((item.rpe for item in reversed(sets) if item.rpe is not None), None)
+        effort = (
+            f" That effort is too high to progress, so repeat {target} until it feels more "
+            "comfortable."
+            if last_rpe is not None and last_rpe >= 9
+            else f" Repeat {target} before progressing."
+        )
+        explanation = f"Holding steady: {last_sentence}{effort}"
+    return ExerciseDecision(
+        recommendation=recommendation,
+        target_weight=weight,
+        reasoning_category=reason,
+        target_reps=reps,
+        target_durations=durations,
+        explanation=explanation,
+        last_weight=next((item.weight for item in reversed(sets) if item.weight is not None), None),
+        last_reps=tuple(item.reps for item in sets if item.reps is not None),
+        last_durations=tuple(
+            item.duration_seconds for item in sets if item.duration_seconds is not None
+        ),
+        last_rpe=next((item.rpe for item in reversed(sets) if item.rpe is not None), None),
+        rep_min=policy.rep_min,
+        rep_max=policy.rep_max,
+    )
 
 
 def recommend_all(

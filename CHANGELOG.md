@@ -13,6 +13,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   sync stopped, so everyday updates stay quick.
 - Gym cards now understand bodyweight exercises, timed exercises, and supersets. New exercises
   start conservatively from the first workout you log.
+- You can inspect an individual workout by its stable history ID, browse stored exercise names,
+  and ask a gym card for a short explanation of each recommendation.
 
 ### Changed
 
@@ -26,9 +28,17 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   continue to work and can be matched with the same workout later returned by the API.
 - Warm-ups come from Hevy's labels or your config rather than guesses based on a lighter first set.
 - Gym cards show how fresh their source workout is and use the oldest exercise date when a routine
-  was completed in parts.
+  was completed in parts. A recently synced database no longer warns that an older routine means
+  data may be missing.
 - Rep ranges, increments, and large weight jumps remain configurable. Large jumps now require two
-  clean sessions at the top of the range before adding weight.
+  clean sessions at the top of the range before adding weight, and recommendations never go past
+  an exercise's configured ceiling even when older logs did.
+- Exercise history now separates warm-ups from working sets so warm-ups do not distort totals,
+  volume, estimated strength, or trends.
+- A routine can explicitly use a different working-set count for one exercise without changing
+  that exercise everywhere else or inferring a permanent change from an extra logged set.
+- Gym cards now fit the workout into one compact table. Explanation mode puts a short, grouped
+  coaching summary above it instead of adding a paragraph beneath every exercise.
 - `status` now shows the latest workout, CSV import, and API sync.
 - The old top-level `history` shortcut is gone; use `workout history` or `exercise history`.
 

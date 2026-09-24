@@ -11,6 +11,7 @@ from .models import SetRecord
 
 @dataclass(frozen=True)
 class WorkoutSummary:
+    id: int
     title: str
     started_at: datetime
     duration_seconds: int | None
@@ -24,6 +25,31 @@ class WorkoutTypeSummary:
     session_count: int
     last_started_at: datetime
     set_count: int
+
+
+@dataclass(frozen=True)
+class WorkoutSetDetail:
+    exercise: str
+    exercise_order: int
+    superset_id: int | None
+    set_index: int
+    set_type: str
+    weight: float | None
+    reps: int | None
+    duration_seconds: int | None
+    rpe: float | None
+
+    @property
+    def is_warmup(self) -> bool:
+        value = self.set_type.strip().lower().replace("-", "_").replace(" ", "_")
+        return value in {"warmup", "warm_up", "w"}
+
+
+@dataclass(frozen=True)
+class ExerciseSummary:
+    title: str
+    session_count: int
+    last_started_at: datetime
 
 
 def _record(row: sqlite3.Row) -> SetRecord:
@@ -81,7 +107,8 @@ def workout_titles(connection: sqlite3.Connection) -> list[str]:
 
 def latest_workout_summary(connection: sqlite3.Connection) -> WorkoutSummary | None:
     row = connection.execute(
-        """SELECT w.title, w.start_time, w.duration_seconds, COUNT(DISTINCT e.id) AS exercise_count,
+        """SELECT w.id, w.title, w.start_time, w.duration_seconds,
+        COUNT(DISTINCT e.id) AS exercise_count,
         COUNT(s.id) AS set_count FROM workouts w
         LEFT JOIN exercises e ON e.workout_id = w.id
         LEFT JOIN sets s ON s.exercise_id = e.id
@@ -90,6 +117,7 @@ def latest_workout_summary(connection: sqlite3.Connection) -> WorkoutSummary | N
     if row is None:
         return None
     return WorkoutSummary(
+        id=row["id"],
         title=row["title"],
         started_at=datetime.fromisoformat(row["start_time"]),
         duration_seconds=row["duration_seconds"],
@@ -105,7 +133,8 @@ def latest_imported_at(connection: sqlite3.Connection) -> datetime | None:
 
 def recent_workouts(connection: sqlite3.Connection, limit: int) -> list[WorkoutSummary]:
     rows = connection.execute(
-        """SELECT w.title, w.start_time, w.duration_seconds, COUNT(DISTINCT e.id) AS exercise_count,
+        """SELECT w.id, w.title, w.start_time, w.duration_seconds,
+        COUNT(DISTINCT e.id) AS exercise_count,
         COUNT(s.id) AS set_count FROM workouts w
         LEFT JOIN exercises e ON e.workout_id = w.id
         LEFT JOIN sets s ON s.exercise_id = e.id
@@ -114,6 +143,7 @@ def recent_workouts(connection: sqlite3.Connection, limit: int) -> list[WorkoutS
     ).fetchall()
     return [
         WorkoutSummary(
+            id=row["id"],
             title=row["title"],
             started_at=datetime.fromisoformat(row["start_time"]),
             duration_seconds=row["duration_seconds"],
@@ -174,3 +204,74 @@ def exercise_history(connection: sqlite3.Connection, exercises: list[str]) -> li
         tuple(exercise.casefold() for exercise in exercises),
     ).fetchall()
     return [_record(row) for row in rows]
+
+
+def workout_summary_by_id(connection: sqlite3.Connection, workout_id: int) -> WorkoutSummary | None:
+    row = connection.execute(
+        """SELECT w.id, w.title, w.start_time, w.duration_seconds,
+        COUNT(DISTINCT e.id) AS exercise_count, COUNT(s.id) AS set_count
+        FROM workouts w
+        LEFT JOIN exercises e ON e.workout_id = w.id
+        LEFT JOIN sets s ON s.exercise_id = e.id
+        WHERE w.id = ? GROUP BY w.id""",
+        (workout_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    return WorkoutSummary(
+        id=row["id"],
+        title=row["title"],
+        started_at=datetime.fromisoformat(row["start_time"]),
+        duration_seconds=row["duration_seconds"],
+        exercise_count=row["exercise_count"],
+        set_count=row["set_count"],
+    )
+
+
+def workout_set_details(connection: sqlite3.Connection, workout_id: int) -> list[WorkoutSetDetail]:
+    rows = connection.execute(
+        """SELECT e.exercise_title, e.exercise_order, e.superset_id,
+        s.set_index, s.set_type, s.weight_lbs, s.reps, s.duration_seconds, s.rpe
+        FROM exercises e JOIN sets s ON s.exercise_id = e.id
+        WHERE e.workout_id = ? ORDER BY e.exercise_order, s.set_index, s.id""",
+        (workout_id,),
+    ).fetchall()
+    return [
+        WorkoutSetDetail(
+            exercise=row["exercise_title"],
+            exercise_order=row["exercise_order"],
+            superset_id=row["superset_id"],
+            set_index=row["set_index"],
+            set_type=row["set_type"],
+            weight=row["weight_lbs"],
+            reps=row["reps"],
+            duration_seconds=row["duration_seconds"],
+            rpe=row["rpe"],
+        )
+        for row in rows
+    ]
+
+
+def exercise_summaries(connection: sqlite3.Connection) -> list[ExerciseSummary]:
+    rows = connection.execute(
+        """SELECT e.exercise_title, COUNT(DISTINCT w.id) AS session_count,
+        MAX(w.start_time) AS last_started_at
+        FROM exercises e JOIN workouts w ON w.id = e.workout_id
+        GROUP BY lower(e.exercise_title)
+        ORDER BY lower(e.exercise_title)"""
+    ).fetchall()
+    return [
+        ExerciseSummary(
+            title=row["exercise_title"],
+            session_count=row["session_count"],
+            last_started_at=datetime.fromisoformat(row["last_started_at"]),
+        )
+        for row in rows
+    ]
+
+
+def latest_api_synced_at(connection: sqlite3.Connection) -> datetime | None:
+    row = connection.execute(
+        "SELECT synced_at FROM sync_state WHERE provider = 'hevy_api'"
+    ).fetchone()
+    return datetime.fromisoformat(row["synced_at"]) if row else None

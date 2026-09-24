@@ -123,6 +123,13 @@ def load_routine_policies(path: str | Path | None = None) -> list[RoutinePolicy]
                 (str(name), int(count))
                 for name, count in values.get("warmup_set_counts", {}).items()
             ),
+            working_set_counts=tuple(
+                (
+                    str(name),
+                    _positive_int(count, f"workout {title!r}.working_set_counts.{name}"),
+                )
+                for name, count in values.get("working_set_counts", {}).items()
+            ),
             supersets=tuple(
                 SupersetPolicy(
                     exercises=tuple(str(name) for name in superset.get("exercises", [])),

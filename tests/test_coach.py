@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from hevy_coach.coach import (
+    exercise_decision,
     next_duration_target,
     next_session_target,
     recommend_all,
@@ -12,7 +13,7 @@ from hevy_coach.coach import (
 )
 from hevy_coach.config import load_config, load_routine_policies, resolve_routine
 from hevy_coach.gym_card import build_card, render_card, unknown_routine_exercises
-from hevy_coach.models import Action, SetRecord
+from hevy_coach.models import Action, DecisionReason, SetRecord
 from hevy_coach.parser import read_hevy_csv
 
 FIXTURE = Path(__file__).parent / "fixtures" / "current_workouts.csv"
@@ -213,7 +214,7 @@ def test_established_bodyweight_and_duration_progress_without_weight_logic() -> 
 def _set(
     exercise: str,
     index: int,
-    weight: float,
+    weight: float | None,
     reps: int,
     rpe: float | None,
     started_at: datetime,
@@ -249,9 +250,12 @@ def test_first_session_routine_is_a_conservative_baseline() -> None:
     assert recommendation.history_status == "limited"
     assert "trend" not in f"{recommendation.message} {recommendation.evidence}".casefold()
     assert items[0].history_status == "limited"
-    assert render_card(title, items).endswith(
-        "1     15    8\n2     35    8\n3     35    8\n4     35    8\n"
-    )
+    rendered = render_card(title, items)
+    assert "WORKOUT" in rendered
+    assert "Incline DB Bench" in rendered
+    assert "15×8" in rendered
+    assert "35×8×3" in rendered
+    assert "COACH'S SUMMARY" not in rendered
 
 
 def test_second_session_uses_normal_progression_rules() -> None:
@@ -302,7 +306,7 @@ def test_unknown_exercises_are_reported_without_changing_the_routine() -> None:
     ("exercise", "reps", "maximum"),
     [
         ("Cable Fly Crossovers", 13, 10),
-        ("Lateral Raise (Dumbbell)", 13, 12),
+        ("Lateral Raise (Dumbbell)", 13, 10),
         ("Bench Press (Dumbbell)", 11, 10),
         ("Crunch (Machine)", 13, 12),
     ],
@@ -336,7 +340,116 @@ def test_top_range_high_rpe_repeats_ceiling_and_large_increment_does_not_force_j
     raise_weight, raise_target = next_session_target(raise_sets, lateral_raise, "established")
 
     assert (fly_weight, fly_target) == (10, [10, 10, 10])
-    assert (raise_weight, raise_target) == (10, [12, 12, 12])
+    assert (raise_weight, raise_target) == (10, [10, 10, 10])
+
+
+def test_historical_reps_above_ceiling_are_clamped_in_decision_and_explanation() -> None:
+    _, policies = load_config()
+    policy = next(item for item in policies if item.name == "Lateral Raise (Dumbbell)")
+    first = datetime(2024, 1, 1, tzinfo=UTC)
+    sessions = (
+        (10, (12, 12, 12), 7),
+        (12, (10, 10, 10), 8),
+        (12, (12, 10, 10), 9),
+    )
+    records = [
+        _set(
+            policy.name,
+            index,
+            weight,
+            rep,
+            rpe,
+            first + timedelta(days=session * 3),
+        )
+        for session, (weight, reps, rpe) in enumerate(sessions)
+        for index, rep in enumerate(reps)
+    ]
+
+    decision = exercise_decision(records, policy)
+
+    assert decision.target_weight == 12
+    assert decision.target_reps == (10, 10, 10)
+    assert max(decision.target_reps) <= policy.rep_max
+    assert decision.reasoning_category is DecisionReason.HOLD
+    assert "12 lb × 12/10/10" in decision.explanation
+    assert "RPE 9" in decision.explanation
+
+
+def test_duration_decision_never_exceeds_configured_maximum() -> None:
+    _, policies = load_config()
+    policy = next(item for item in policies if item.name == "Plank")
+    first = datetime(2024, 1, 1, tzinfo=UTC)
+    records = [
+        SetRecord(
+            "Bodyweight Circuit",
+            first + timedelta(days=session * 3),
+            policy.name,
+            index,
+            "normal",
+            None,
+            None,
+            8,
+            duration_seconds=duration,
+        )
+        for session in range(2)
+        for index, duration in enumerate((75, 65, 55))
+    ]
+
+    decision = exercise_decision(records, policy)
+
+    assert decision.target_durations == (60, 60, 60)
+    assert max(decision.target_durations) <= policy.duration_max_seconds
+
+
+def test_bodyweight_baseline_never_exceeds_configured_rep_maximum() -> None:
+    _, policies = load_config()
+    policy = next(item for item in policies if item.name == "Push Up")
+    started_at = datetime(2024, 1, 1, tzinfo=UTC)
+    records = [_set(policy.name, index, None, 18, 8, started_at) for index in range(3)]
+
+    decision = exercise_decision(records, policy)
+
+    assert decision.target_weight is None
+    assert decision.target_reps == (policy.rep_max,) * policy.sets
+
+
+def test_configured_warmup_does_not_affect_progression_decision() -> None:
+    _, policies = load_config()
+    policy = next(item for item in policies if item.name == "Bench Press (Dumbbell)")
+    first = datetime(2024, 1, 1, tzinfo=UTC)
+    records = [
+        _set(policy.name, index, 25 if index == 0 else 45, 8 if index == 0 else 10, 8, date)
+        for date in (first, first + timedelta(days=3))
+        for index in range(4)
+    ]
+
+    decision = exercise_decision(records, policy, warmup_set_count=1)
+
+    assert decision.recommendation.action is Action.INCREASE_WEIGHT
+    assert decision.reasoning_category is DecisionReason.WEIGHT_UP
+    assert decision.target_weight == 50
+    assert decision.target_reps == (policy.rep_min,) * policy.sets
+    assert "45 lb × 10 for all 3 sets" in decision.explanation
+    assert "top of your 6–10 rep range" in decision.explanation
+    assert "move up to 50 lb × 6 for all 3 sets" in decision.explanation
+
+
+def test_high_rpe_uneven_sets_are_repeated_and_described_accurately() -> None:
+    _, policies = load_config()
+    policy = next(item for item in policies if item.name == "Bicep Curl (Dumbbell)")
+    first = datetime(2024, 1, 1, tzinfo=UTC)
+    records = [
+        _set(policy.name, index, 25, rep, 10, first + timedelta(days=session * 3))
+        for session in range(2)
+        for index, rep in enumerate((10, 10, 6))
+    ]
+
+    decision = exercise_decision(records, policy)
+
+    assert decision.reasoning_category is DecisionReason.HOLD
+    assert decision.target_reps == (10, 10, 6)
+    assert "25 lb × 10/10/6 at RPE 10" in decision.explanation
+    assert "repeat 25 lb × 10/10/6" in decision.explanation
 
 
 def _ceiling_session(
@@ -362,6 +475,11 @@ def test_large_increment_requires_two_consecutive_successful_ceiling_sessions() 
     assert recommendation.action is Action.HOLD_WEIGHT
     assert "once more" in recommendation.message
     assert max(target) == lateral_raise.rep_max
+
+    decision = exercise_decision(all_records, lateral_raise)
+    assert decision.reasoning_category is DecisionReason.CONFIRM
+    assert "next available weight is a large jump" in decision.explanation
+    assert "successfully once more" in decision.explanation
 
     second_success = _ceiling_session(
         lateral_raise.name, first + timedelta(days=6), 8, lateral_raise.rep_max
