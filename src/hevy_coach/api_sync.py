@@ -115,7 +115,9 @@ def workout_records(
                 workout_set.get("duration_seconds"), "duration_seconds"
             )
             reps = _optional_integer(workout_set.get("reps"), "reps")
-            unweighted = exercise_type in {"reps_only", "bodyweight_reps", "duration"}
+            unweighted = exercise_type in {"reps_only", "duration"} or (
+                exercise_type == "bodyweight_reps" and weight_kg == 0
+            )
             duration_only = exercise_type == "duration"
             records.append(
                 SetRecord(

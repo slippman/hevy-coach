@@ -35,6 +35,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   an exercise's configured ceiling even when older logs did.
 - Exercise history now separates warm-ups from working sets so warm-ups do not distort totals,
   volume, estimated strength, or trends.
+- API sync keeps added weight on bodyweight exercises, and exercise history combines sessions
+  logged under any configured name for the same movement.
 - A routine can explicitly use a different working-set count for one exercise without changing
   that exercise everywhere else or inferring a permanent change from an extra logged set.
 - Gym cards now fit the workout into one compact table. Explanation mode puts a short, grouped

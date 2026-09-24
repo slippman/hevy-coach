@@ -366,7 +366,11 @@ def _show_exercise_history(exercise: str, limit: int, db: Path) -> None:
         ]
         if exact_stored:
             policy = next((item for item in policies if _matches(exact_stored, item)), None)
-            names = [exact_stored]
+            names = (
+                [title for title in stored if _matches(title, policy)]
+                if policy is not None
+                else [exact_stored]
+            )
         elif len(policy_matches) == 1:
             policy = policy_matches[0]
             names = [

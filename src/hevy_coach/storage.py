@@ -89,8 +89,9 @@ def _legacy_csv_as_utc(value: str | None) -> str | None:
         return None
     mislabeled = datetime.fromisoformat(value)
     offset = mislabeled.utcoffset()
-    # The legacy parser attached UTC to offset-free CSV values. A non-zero offset, however,
-    # could only have come explicitly from the export and already identifies the correct instant.
+    # The legacy parser stored offset-free local values with +00:00, so they are indistinguishable
+    # here from source values that explicitly used Z or +00:00. Standard Hevy CSV timestamps are
+    # local wall-clock values; only a non-zero stored offset proves the source supplied an offset.
     if offset is not None and offset.total_seconds() != 0:
         return as_utc(mislabeled).isoformat()
     wall_clock = mislabeled.replace(tzinfo=None)

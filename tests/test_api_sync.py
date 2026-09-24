@@ -268,7 +268,7 @@ def test_sync_preserves_modality_and_superset_and_normalizes_unused_zeroes(
                     {
                         "index": index,
                         "type": "normal",
-                        "weight_kg": 0,
+                        "weight_kg": 10 if index == 0 else 0,
                         "reps": reps,
                         "distance_meters": 0,
                         "duration_seconds": 0,
@@ -326,7 +326,9 @@ def test_sync_preserves_modality_and_superset_and_normalizes_unused_zeroes(
         ("Pull Up", "bodyweight_reps", 0),
         ("Plank", "duration", None),
     ]
-    assert all(row["weight_lbs"] is None for row in rows)
+    assert [row["weight_lbs"] for row in rows[:3]] == [None, None, None]
+    assert rows[3]["weight_lbs"] == pytest.approx(10 * KG_TO_LBS, abs=0.01)
+    assert [row["weight_lbs"] for row in rows[4:]] == [None, None, None, None, None]
     assert [row["reps"] for row in rows[:6]] == [10, 10, 10, 3, 2, 2]
     assert [tuple(row)[1:] for row in rows[6:]] == [
         (None, None, 50),

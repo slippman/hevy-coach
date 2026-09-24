@@ -177,6 +177,32 @@ def test_exercise_lookup_suggests_names_and_list_supports_search(tmp_path: Path)
     assert "Lat Pulldown" not in listing.output
 
 
+def test_exercise_history_combines_stored_configured_aliases(tmp_path: Path) -> None:
+    source = tmp_path / "aliases.csv"
+    source.write_text(
+        "title,start_time,exercise_title,set_index,set_type,weight_lbs,reps,rpe\n"
+        "Strength A,2026-01-01 08:00:00,Dumbbell Bench Press,0,warmup,25,8,5\n"
+        "Strength A,2026-01-01 08:00:00,Dumbbell Bench Press,1,normal,45,8,8\n"
+        "Strength A,2026-01-01 08:00:00,Dumbbell Bench Press,2,normal,45,8,8\n"
+        "Strength A,2026-01-01 08:00:00,Dumbbell Bench Press,3,normal,45,8,8\n"
+        "Strength A,2026-01-08 08:00:00,DB Bench,0,warmup,25,8,5\n"
+        "Strength A,2026-01-08 08:00:00,DB Bench,1,normal,45,9,8\n"
+        "Strength A,2026-01-08 08:00:00,DB Bench,2,normal,45,9,8\n"
+        "Strength A,2026-01-08 08:00:00,DB Bench,3,normal,45,9,8\n",
+        encoding="utf-8",
+    )
+    db = tmp_path / "hevy.db"
+    with database(db) as connection:
+        import_csv(connection, source, db.parent / "imports")
+
+    result = CliRunner().invoke(main, ["exercise", "history", "DB Bench", "--db", str(db)])
+
+    assert result.exit_code == 0, result.output
+    assert "2026-01-01" in result.output
+    assert "2026-01-08" in result.output
+    assert "Trend (2 sessions)" in result.output
+
+
 def test_workout_show_uses_stable_id_and_preserves_set_details(tmp_path: Path) -> None:
     source = tmp_path / "detail.csv"
     source.write_text(
