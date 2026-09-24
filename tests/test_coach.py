@@ -156,6 +156,25 @@ def test_first_bodyweight_and_timed_baselines_can_be_below_configured_minimum() 
     assert next_duration_target(plank, configured["Plank"], "limited") == [20, 20, 20]
 
 
+def test_first_weighted_baseline_can_be_below_configured_minimum() -> None:
+    _, policies = load_config()
+    policy = next(item for item in policies if item.name == "Bench Press (Dumbbell)")
+    started_at = datetime(2026, 1, 15, 10, tzinfo=UTC)
+    records = [
+        SetRecord("Strength A", started_at, policy.name, index, "normal", 45, 3, 10)
+        for index in range(3)
+    ]
+
+    recommendation = recommend_exercise(records, policy)
+    decision = exercise_decision(records, policy)
+
+    assert next_session_target(records, policy, "limited") == (45, [3, 3, 3])
+    assert recommendation.action is Action.HOLD_WEIGHT
+    assert "repeat 3/3/3 as a baseline" in recommendation.message
+    assert decision.target_reps == (3, 3, 3)
+    assert decision.reasoning_category is DecisionReason.LIMITED_HISTORY
+
+
 def test_established_bodyweight_and_duration_progress_without_weight_logic() -> None:
     _, policies = load_config()
     configured = {policy.name: policy for policy in policies}

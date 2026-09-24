@@ -232,6 +232,7 @@ def _replace_workout(
     ended_at = _optional_timestamp(workout.get("end_time"), "end_time")
     description = workout.get("description") or ""
     duration = int((ended_at - started_at).total_seconds()) if ended_at else None
+    natural_key = workout_key(records[0]) if records else f"{PROVIDER}:{source_id}"
 
     existing = connection.execute(
         "SELECT id FROM workouts WHERE source_provider = ? AND source_id = ?",
@@ -252,7 +253,7 @@ def _replace_workout(
                 created_at, source_provider, source_id)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
-                f"{PROVIDER}:{source_id}",
+                natural_key,
                 title,
                 started_at.isoformat(),
                 ended_at.isoformat() if ended_at else None,
@@ -267,10 +268,11 @@ def _replace_workout(
     else:
         connection.execute(
             """UPDATE workouts
-               SET title = ?, start_time = ?, end_time = ?, description = ?, duration_seconds = ?,
-                   source_provider = ?, source_id = ?
+               SET workout_key = ?, title = ?, start_time = ?, end_time = ?, description = ?,
+                   duration_seconds = ?, source_provider = ?, source_id = ?
                WHERE id = ?""",
             (
+                natural_key,
                 title,
                 started_at.isoformat(),
                 ended_at.isoformat() if ended_at else None,
@@ -326,7 +328,7 @@ def _replace_workout(
                    (set_key, exercise_id, set_index, set_type, weight_lbs, reps, distance_miles,
                     duration_seconds, rpe) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
-                    set_key(f"{PROVIDER}:{source_id}", record),
+                    set_key(natural_key, record),
                     exercise_id,
                     record.set_index,
                     record.set_type,

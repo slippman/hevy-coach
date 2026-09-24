@@ -132,10 +132,16 @@ def markdown(payload: dict) -> str:
 def _json_sets(items: list[dict]) -> str:
     if not items:
         return "none"
-    return ", ".join(
-        f"{_weight(item['weight_lbs'])} × {item['reps'] if item['reps'] is not None else '—'}"
-        for item in items
-    )
+    rendered = []
+    for item in items:
+        if item["duration_seconds"] is not None:
+            rendered.append(f"{item['duration_seconds']} sec")
+        else:
+            rendered.append(
+                f"{_weight(item['weight_lbs'])} × "
+                f"{item['reps'] if item['reps'] is not None else '—'}"
+            )
+    return ", ".join(rendered)
 
 
 def dated_filename(payload: dict) -> str:

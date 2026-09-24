@@ -111,6 +111,26 @@ def test_report_copies_markdown_to_clipboard(mock_run, tmp_path: Path) -> None:
     assert mock_run.call_args.args[0] == ["pbcopy"]
 
 
+def test_report_renders_duration_sets_in_seconds(tmp_path: Path) -> None:
+    source = tmp_path / "timed.csv"
+    source.write_text(
+        "title,start_time,exercise_title,set_index,set_type,duration_seconds,rpe\n"
+        "Bodyweight Circuit,2026-01-01 08:00:00,Plank,0,normal,45,7\n"
+        "Bodyweight Circuit,2026-01-01 08:00:00,Plank,1,normal,50,7\n"
+        "Bodyweight Circuit,2026-01-01 08:00:00,Plank,2,normal,55,8\n",
+        encoding="utf-8",
+    )
+    db = tmp_path / "hevy.db"
+    runner = CliRunner()
+    assert runner.invoke(main, ["import", str(source), "--db", str(db)]).exit_code == 0
+
+    result = runner.invoke(main, ["report", "--latest", "--db", str(db)])
+
+    assert result.exit_code == 0, result.output
+    assert "Working: 45 sec, 50 sec, 55 sec" in result.output
+    assert "bodyweight × —" not in result.output
+
+
 def test_status_shows_latest_workout_and_import(tmp_path: Path) -> None:
     runner = CliRunner()
     db = tmp_path / "hevy.db"

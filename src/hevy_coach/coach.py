@@ -114,14 +114,12 @@ def next_session_target(
     if not logged:
         return weight, [policy.rep_min] * policy.sets
     capped_reps = [min(policy.rep_max, rep) for rep in logged[: policy.sets]]
-    if history_status == "limited" and policy.progression == "bodyweight_reps":
-        return None, capped_reps
+    if history_status == "limited":
+        return (None if policy.progression == "bodyweight_reps" else weight), capped_reps
     last_rpe = next((item.rpe for item in reversed(sets) if item.rpe is not None), None)
     if policy.progression == "bodyweight_reps" and last_rpe is not None and last_rpe >= 9.5:
         return None, capped_reps
     reps = [max(policy.rep_min, rep) for rep in capped_reps]
-    if history_status == "limited":
-        return weight, reps
     if policy.progression == "bodyweight_reps":
         if len(reps) >= policy.sets and all(rep >= policy.rep_max for rep in reps):
             return None, [policy.rep_max] * policy.sets

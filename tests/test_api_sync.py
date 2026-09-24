@@ -189,6 +189,36 @@ def test_initial_api_sync_reconciles_csv_without_merging_distinct_same_day_sessi
     assert sorted((row["source_id"] or "csv") for row in rows) == ["csv", "workout-1"]
 
 
+def test_csv_import_after_api_sync_does_not_duplicate_workout(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("HEVY_TIMEZONE", "UTC")
+    db = tmp_path / "hevy.db"
+    csv_path = tmp_path / "synthetic.csv"
+    csv_path.write_text(
+        "title,start_time,end_time,exercise_title,exercise_notes,set_index,set_type,weight_lbs,reps,rpe\n"
+        "Strength A,2026-08-29 15:00:00,2026-08-29 16:00:00,Dumbbell Bench Press,Synthetic fixture,0,warmup,25,8,5\n"
+        "Strength A,2026-08-29 15:00:00,2026-08-29 16:00:00,Dumbbell Bench Press,Synthetic fixture,1,normal,45,8,8\n",
+        encoding="utf-8",
+    )
+
+    with database(db) as connection:
+        sync_workouts(
+            connection,
+            FakeSource([{"type": "updated", "workout": workout_payload()}]),
+            now=datetime(2026, 8, 29, 18, tzinfo=UTC),
+        )
+        imported = import_csv(connection, csv_path, tmp_path / "imports")
+        counts = (
+            connection.execute("SELECT COUNT(*) FROM workouts").fetchone()[0],
+            connection.execute("SELECT COUNT(*) FROM exercises").fetchone()[0],
+            connection.execute("SELECT COUNT(*) FROM sets").fetchone()[0],
+        )
+
+    assert counts == (1, 1, 2)
+    assert imported.workouts_added == 0
+    assert imported.exercises_added == 0
+    assert imported.sets_added == 0
+
+
 class FakeResponse(io.BytesIO):
     def __enter__(self):
         return self
