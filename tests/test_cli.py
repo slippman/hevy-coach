@@ -226,10 +226,11 @@ def test_exercise_history_combines_stored_configured_aliases(tmp_path: Path) -> 
 def test_workout_show_uses_stable_id_and_preserves_set_details(tmp_path: Path) -> None:
     source = tmp_path / "detail.csv"
     source.write_text(
-        "title,start_time,end_time,exercise_title,set_index,set_type,weight_lbs,reps,duration_seconds,rpe\n"
-        "Strength A,2026-01-01 08:00:00,2026-01-01 09:00:00,Dumbbell Bench Press,0,normal,25,8,,5\n"
-        "Strength A,2026-01-01 08:00:00,2026-01-01 09:00:00,Dumbbell Bench Press,1,normal,45,10,,8\n"
-        "Strength A,2026-01-01 08:00:00,2026-01-01 09:00:00,Plank,0,normal,,,45,7\n",
+        "title,start_time,end_time,exercise_title,set_index,set_type,weight_lbs,reps,distance_miles,duration_seconds,rpe\n"
+        "Strength A,2026-01-01 08:00:00,2026-01-01 09:00:00,Dumbbell Bench Press,0,normal,25,8,,,5\n"
+        "Strength A,2026-01-01 08:00:00,2026-01-01 09:00:00,Dumbbell Bench Press,1,normal,45,10,,,8\n"
+        "Strength A,2026-01-01 08:00:00,2026-01-01 09:00:00,Plank,0,normal,,,,45,7\n"
+        "Strength A,2026-01-01 08:00:00,2026-01-01 09:00:00,Run,0,normal,,,1.25,,8\n",
         encoding="utf-8",
     )
     db = tmp_path / "hevy.db"
@@ -251,10 +252,13 @@ def test_workout_show_uses_stable_id_and_preserves_set_details(tmp_path: Path) -
     assert "working   45 lb × 10" in result.output
     assert "Plank · Superset 0" in result.output
     assert "45 sec" in result.output
+    assert "1.25 mi" in result.output
     payload = json.loads(payload_result.output)
     assert payload["exercises"][0]["sets"][0]["type"] == "warm-up"
     assert payload["exercises"][0]["sets"][0]["logged_type"] == "normal"
     assert payload["exercises"][1]["superset_id"] == 0
+    run = next(item for item in payload["exercises"] if item["exercise"] == "Run")
+    assert run["sets"][0]["distance_miles"] == 1.25
 
 
 def test_workout_show_reports_ids_when_title_is_ambiguous(tmp_path: Path) -> None:

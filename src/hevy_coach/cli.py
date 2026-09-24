@@ -481,6 +481,7 @@ def _workout_set_payload(item, classification: str) -> dict:
         "logged_type": item.set_type,
         "weight_lbs": item.weight,
         "reps": item.reps,
+        "distance_miles": item.distance,
         "duration_seconds": item.duration_seconds,
         "rpe": item.rpe,
     }
@@ -576,8 +577,12 @@ def workout_show(identifier: str, as_json: bool, db: Path) -> None:
         label = exercise + (f" · Superset {superset_id}" if superset_id is not None else "")
         lines = [label, "SET   TYPE      LOAD / RESULT      RPE"]
         for item, classification in sets:
-            if item.duration_seconds is not None:
+            if item.distance is not None and item.duration_seconds is not None:
+                result = f"{item.distance:g} mi · {item.duration_seconds} sec"
+            elif item.duration_seconds is not None:
                 result = f"{item.duration_seconds} sec"
+            elif item.distance is not None:
+                result = f"{item.distance:g} mi"
             elif item.weight is None:
                 result = f"{item.reps or '—'} reps"
             else:

@@ -20,13 +20,14 @@ def workout_payload(
     workout_id: str = "workout-1",
     reps: int = 8,
     start_time: str = "2026-08-29T15:00:00Z",
+    end_time: str = "2026-08-29T16:00:00Z",
 ) -> dict:
     return {
         "id": workout_id,
         "title": "Strength A",
         "description": "Synthetic API workout",
         "start_time": start_time,
-        "end_time": "2026-08-29T16:00:00Z",
+        "end_time": end_time,
         "updated_at": "2026-08-29T16:01:00Z",
         "created_at": "2026-08-29T16:01:00Z",
         "exercises": [
@@ -170,8 +171,8 @@ def test_initial_api_sync_reconciles_csv_without_merging_distinct_same_day_sessi
     csv_path = tmp_path / "synthetic.csv"
     csv_path.write_text(
         "title,start_time,end_time,exercise_title,exercise_notes,set_index,set_type,weight_lbs,reps,rpe\n"
-        "Strength A,2026-08-29 09:00:00,2026-08-29 10:00:00,Dumbbell Bench Press,Synthetic fixture,0,warmup,25,8,5\n"
-        "Strength A,2026-08-29 09:00:00,2026-08-29 10:00:00,Dumbbell Bench Press,Synthetic fixture,1,normal,45,8,8\n"
+        "Strength A,2026-08-29 09:00:30,2026-08-29 10:00:30,Dumbbell Bench Press,Synthetic fixture,0,warmup,25,8,5\n"
+        "Strength A,2026-08-29 09:00:30,2026-08-29 10:00:30,Dumbbell Bench Press,Synthetic fixture,1,normal,45,8,8\n"
         "Strength A,2026-08-29 12:00:00,2026-08-29 12:20:00,Dumbbell Bench Press,Other partial session,0,normal,45,6,9\n",
         encoding="utf-8",
     )
@@ -187,6 +188,45 @@ def test_initial_api_sync_reconciles_csv_without_merging_distinct_same_day_sessi
     assert result.workouts_added == 0
     assert result.workouts_updated == 1
     assert sorted((row["source_id"] or "csv") for row in rows) == ["csv", "workout-1"]
+
+
+def test_sync_keeps_repeated_same_day_session_with_identical_sets(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("HEVY_TIMEZONE", "UTC")
+    db = tmp_path / "hevy.db"
+    csv_path = tmp_path / "morning.csv"
+    csv_path.write_text(
+        "title,start_time,end_time,exercise_title,exercise_notes,set_index,set_type,weight_lbs,reps,rpe\n"
+        "Strength A,2026-08-29 09:00:00,2026-08-29 10:00:00,Dumbbell Bench Press,Synthetic fixture,0,warmup,25,8,5\n"
+        "Strength A,2026-08-29 09:00:00,2026-08-29 10:00:00,Dumbbell Bench Press,Synthetic fixture,1,normal,45,8,8\n",
+        encoding="utf-8",
+    )
+
+    with database(db) as connection:
+        import_csv(connection, csv_path, tmp_path / "imports")
+        result = sync_workouts(
+            connection,
+            FakeSource(
+                [
+                    {
+                        "type": "updated",
+                        "workout": workout_payload(
+                            start_time="2026-08-29T20:00:00Z",
+                            end_time="2026-08-29T21:00:00Z",
+                        ),
+                    }
+                ]
+            ),
+            now=datetime(2026, 8, 29, 22, tzinfo=UTC),
+        )
+        rows = connection.execute(
+            "SELECT source_id, start_time FROM workouts ORDER BY start_time"
+        ).fetchall()
+
+    assert result.workouts_added == 1
+    assert len(rows) == 2
+    assert [row["source_id"] for row in rows] == [None, "workout-1"]
 
 
 def test_csv_import_after_api_sync_does_not_duplicate_workout(tmp_path: Path, monkeypatch) -> None:

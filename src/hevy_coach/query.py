@@ -36,6 +36,7 @@ class WorkoutSetDetail:
     set_type: str
     weight: float | None
     reps: int | None
+    distance: float | None
     duration_seconds: int | None
     rpe: float | None
 
@@ -231,7 +232,8 @@ def workout_summary_by_id(connection: sqlite3.Connection, workout_id: int) -> Wo
 def workout_set_details(connection: sqlite3.Connection, workout_id: int) -> list[WorkoutSetDetail]:
     rows = connection.execute(
         """SELECT e.exercise_title, e.exercise_order, e.superset_id,
-        s.set_index, s.set_type, s.weight_lbs, s.reps, s.duration_seconds, s.rpe
+        s.set_index, s.set_type, s.weight_lbs, s.reps, s.distance_miles,
+        s.duration_seconds, s.rpe
         FROM exercises e JOIN sets s ON s.exercise_id = e.id
         WHERE e.workout_id = ? ORDER BY e.exercise_order, s.set_index, s.id""",
         (workout_id,),
@@ -245,6 +247,7 @@ def workout_set_details(connection: sqlite3.Connection, workout_id: int) -> list
             set_type=row["set_type"],
             weight=row["weight_lbs"],
             reps=row["reps"],
+            distance=row["distance_miles"],
             duration_seconds=row["duration_seconds"],
             rpe=row["rpe"],
         )

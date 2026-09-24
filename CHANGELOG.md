@@ -25,7 +25,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Split workouts remain separate sessions. Each exercise advances from the last time you actually
   performed it, so an unfinished workout does not count as a failure.
 - Workout times are stored in UTC and shown in your computer's local time. CSV imports and API
-  sync can arrive in either order without duplicating the same workout.
+  sync can arrive in either order without duplicating the same workout. Reconciliation also checks
+  that timestamps are close, so repeated same-day sessions remain separate.
 - Warm-ups come from Hevy's labels or your config rather than guesses based on a lighter first set.
 - Gym cards show how fresh their source workout is and use the oldest exercise date when a routine
   was completed in parts. A recently synced database no longer warns that an older routine means
@@ -40,7 +41,7 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Max-effort bodyweight and timed sets now repeat the actual result instead of being raised to a
   configured minimum, and timed progress is reported as adding time rather than adding reps.
 - First-session weighted targets preserve the actual baseline even below the configured range,
-  and Markdown reports display timed sets in seconds.
+  Markdown reports display timed sets in seconds, and workout details retain distance results.
 - A routine can explicitly use a different working-set count for one exercise without changing
   that exercise everywhere else or inferring a permanent change from an extra logged set.
 - Gym cards now fit the workout into one compact table. Explanation mode puts a short, grouped

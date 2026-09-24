@@ -15,6 +15,7 @@ from .time_utils import as_utc, local_date
 PROVIDER = "hevy_api"
 KG_TO_LBS = 2.2046226218487757
 METERS_TO_MILES = 0.000621371192237334
+CSV_MATCH_TOLERANCE = timedelta(minutes=5)
 
 
 class WorkoutEventSource(Protocol):
@@ -206,13 +207,22 @@ def _matching_csv_workout(connection: sqlite3.Connection, records: list[SetRecor
     wanted = _record_fingerprint(records)
     matches: list[int] = []
     rows = connection.execute(
-        """SELECT id, start_time FROM workouts
+        """SELECT id, start_time, end_time FROM workouts
            WHERE title = ? COLLATE NOCASE AND source_id IS NULL""",
         (first.routine,),
     ).fetchall()
     for row in rows:
         stored_start = datetime.fromisoformat(row["start_time"])
         if local_date(stored_start) != api_date:
+            continue
+        if abs(stored_start - first.started_at) > CSV_MATCH_TOLERANCE:
+            continue
+        stored_end = datetime.fromisoformat(row["end_time"]) if row["end_time"] else None
+        if (
+            stored_end is not None
+            and first.ended_at is not None
+            and abs(stored_end - first.ended_at) > CSV_MATCH_TOLERANCE
+        ):
             continue
         if _record_fingerprint(_stored_records(connection, row["id"])) == wanted:
             matches.append(row["id"])
