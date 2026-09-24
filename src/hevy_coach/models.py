@@ -7,6 +7,7 @@ from enum import Enum
 
 class Action(str, Enum):
     ADD_REPS = "add reps"
+    ADD_TIME = "add time"
     HOLD_WEIGHT = "hold weight"
     INCREASE_WEIGHT = "increase weight"
     REDUCE_WEIGHT = "reduce weight"

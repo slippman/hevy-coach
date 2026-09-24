@@ -37,6 +37,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   volume, estimated strength, or trends.
 - API sync keeps added weight on bodyweight exercises, and exercise history combines sessions
   logged under any configured name for the same movement.
+- Max-effort bodyweight and timed sets now repeat the actual result instead of being raised to a
+  configured minimum, and timed progress is reported as adding time rather than adding reps.
 - A routine can explicitly use a different working-set count for one exercise without changing
   that exercise everywhere else or inferring a permanent change from an extra logged set.
 - Gym cards now fit the workout into one compact table. Explanation mode puts a short, grouped

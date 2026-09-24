@@ -211,6 +211,73 @@ def test_established_bodyweight_and_duration_progress_without_weight_logic() -> 
     )
 
 
+def test_established_high_rpe_holds_subminimum_bodyweight_and_duration_targets() -> None:
+    _, policies = load_config()
+    configured = {policy.name: policy for policy in policies}
+    first = datetime(2026, 1, 1, 10, tzinfo=UTC)
+    latest = first + timedelta(days=3)
+    push_history = [
+        SetRecord("Bodyweight Circuit", first, "Push Up", index, "normal", None, 8, 7)
+        for index in range(3)
+    ] + [
+        SetRecord("Bodyweight Circuit", latest, "Push Up", index, "normal", None, 5, 10)
+        for index in range(3)
+    ]
+    plank_history = [
+        SetRecord(
+            "Bodyweight Circuit",
+            started_at,
+            "Plank",
+            index,
+            "normal",
+            None,
+            None,
+            rpe,
+            duration_seconds=seconds,
+        )
+        for started_at, seconds, rpe in ((first, 45, 7), (latest, 20, 10))
+        for index in range(3)
+    ]
+
+    push = configured["Push Up"]
+    plank = configured["Plank"]
+    assert next_session_target(push_history[3:], push, "established") == (None, [5, 5, 5])
+    assert next_duration_target(plank_history[3:], plank, "established") == [20, 20, 20]
+    assert recommend_exercise(push_history, push).action is Action.HOLD_WEIGHT
+    assert recommend_exercise(plank_history, plank).action is Action.HOLD_WEIGHT
+    assert exercise_decision(push_history, push).target_reps == (5, 5, 5)
+    assert exercise_decision(plank_history, plank).target_durations == (20, 20, 20)
+
+
+def test_established_duration_progression_uses_add_time_action() -> None:
+    _, policies = load_config()
+    policy = next(item for item in policies if item.name == "Plank")
+    first = datetime(2026, 1, 1, 10, tzinfo=UTC)
+    records = [
+        SetRecord(
+            "Bodyweight Circuit",
+            first + timedelta(days=session * 3),
+            policy.name,
+            index,
+            "normal",
+            None,
+            None,
+            8,
+            duration_seconds=50,
+        )
+        for session in range(2)
+        for index in range(3)
+    ]
+
+    recommendation = recommend_exercise(records, policy)
+    decision = exercise_decision(records, policy)
+
+    assert recommendation.action is Action.ADD_TIME
+    assert recommendation.action.value == "add time"
+    assert decision.reasoning_category is DecisionReason.ADD_TIME
+    assert decision.target_durations == (55, 55, 55)
+
+
 def _set(
     exercise: str,
     index: int,

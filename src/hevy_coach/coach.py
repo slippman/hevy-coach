@@ -113,15 +113,16 @@ def next_session_target(
     logged = [item.reps for item in sets if item.reps is not None]
     if not logged:
         return weight, [policy.rep_min] * policy.sets
+    capped_reps = [min(policy.rep_max, rep) for rep in logged[: policy.sets]]
     if history_status == "limited" and policy.progression == "bodyweight_reps":
-        return None, [min(policy.rep_max, rep) for rep in logged[: policy.sets]]
-    reps = [min(policy.rep_max, max(policy.rep_min, rep)) for rep in logged[: policy.sets]]
+        return None, capped_reps
+    last_rpe = next((item.rpe for item in reversed(sets) if item.rpe is not None), None)
+    if policy.progression == "bodyweight_reps" and last_rpe is not None and last_rpe >= 9.5:
+        return None, capped_reps
+    reps = [max(policy.rep_min, rep) for rep in capped_reps]
     if history_status == "limited":
         return weight, reps
-    last_rpe = next((item.rpe for item in reversed(sets) if item.rpe is not None), None)
     if policy.progression == "bodyweight_reps":
-        if last_rpe is not None and last_rpe >= 9.5:
-            return None, reps
         if len(reps) >= policy.sets and all(rep >= policy.rep_max for rep in reps):
             return None, [policy.rep_max] * policy.sets
         if len(set(reps)) == 1:
@@ -165,12 +166,13 @@ def next_duration_target(
     increment = policy.duration_increment_seconds or 1
     if not logged:
         return [minimum] * policy.sets
+    capped_durations = [min(maximum, value) for value in logged[: policy.sets]]
     if history_status == "limited":
-        return [min(maximum, value) for value in logged[: policy.sets]]
-    durations = [min(maximum, max(minimum, value)) for value in logged[: policy.sets]]
+        return capped_durations
     last_rpe = next((item.rpe for item in reversed(sets) if item.rpe is not None), None)
     if last_rpe is not None and last_rpe >= 9.5:
-        return durations
+        return capped_durations
+    durations = [max(minimum, value) for value in capped_durations]
     return [min(maximum, value + increment) for value in durations]
 
 
@@ -221,7 +223,7 @@ def recommend_exercise(
         should_hold = history_status == "limited" or durations == logged_durations
         return Recommendation(
             policy.name,
-            Action.HOLD_WEIGHT if should_hold else Action.ADD_REPS,
+            Action.HOLD_WEIGHT if should_hold else Action.ADD_TIME,
             None,
             f"Hold for {target} seconds.",
             evidence,
@@ -466,15 +468,14 @@ def exercise_decision(
             f"Weight reduced: {last_sentence} Reduce the load to {target} so you can rebuild "
             "the target reps with clean form."
         )
-    elif recommendation.action is Action.ADD_REPS:
-        reason = (
-            DecisionReason.ADD_TIME if policy.progression == "duration" else DecisionReason.ADD_REPS
-        )
-        label = "Adding time" if policy.progression == "duration" else "Adding reps"
+    elif recommendation.action in {Action.ADD_REPS, Action.ADD_TIME}:
+        adding_time = recommendation.action is Action.ADD_TIME
+        reason = DecisionReason.ADD_TIME if adding_time else DecisionReason.ADD_REPS
+        label = "Adding time" if adding_time else "Adding reps"
         explanation = (
             f"{label}: {last_sentence} Keep the same resistance and aim for {target}; you are "
             f"still building toward the top of your {policy.rep_min}–{policy.rep_max} rep range."
-            if policy.progression != "duration"
+            if not adding_time
             else f"{label}: {last_sentence} Keep the same exercise and aim for {target}."
         )
     else:
