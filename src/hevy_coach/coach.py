@@ -101,6 +101,14 @@ def _evidence(sets: list[SetRecord], last_rpe: float | None) -> str:
     return f"Working reps {reps}; last-set RPE {rpe}"
 
 
+def _duration_evidence(sets: list[SetRecord], last_rpe: float | None) -> str:
+    durations = "/".join(
+        "–" if item.duration_seconds is None else str(item.duration_seconds) for item in sets
+    )
+    rpe = "not logged" if last_rpe is None else f"{last_rpe:g}"
+    return f"Working duration {durations} seconds; last-set RPE {rpe}"
+
+
 def next_session_target(
     sets: list[SetRecord],
     policy: ExercisePolicy,
@@ -136,7 +144,7 @@ def next_session_target(
         return weight, [min(policy.rep_max, rep) for rep in logged[: policy.sets]]
     at_ceiling = len(reps) >= policy.sets and all(rep >= policy.rep_max for rep in reps)
     if at_ceiling:
-        if last_rpe is not None and last_rpe <= 8.5 and not policy.large_increment:
+        if (last_rpe is None or last_rpe <= 8.5) and not policy.large_increment:
             return (weight + policy.increment if weight is not None else None), [
                 policy.rep_min
             ] * policy.sets
@@ -208,7 +216,11 @@ def recommend_exercise(
     reps = [item.reps for item in sets if item.reps is not None]
     rpes = [item.rpe for item in sets if item.rpe is not None]
     last_rpe = rpes[-1] if rpes else None
-    evidence = _evidence(sets, last_rpe)
+    evidence = (
+        _duration_evidence(sets, last_rpe)
+        if policy.progression == "duration"
+        else _evidence(sets, last_rpe)
+    )
 
     if policy.progression == "duration":
         durations = next_duration_target(sets, policy, history_status)

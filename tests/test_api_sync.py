@@ -165,8 +165,9 @@ def test_first_sync_uses_recent_local_history_and_then_saved_cursor(tmp_path: Pa
 
 
 def test_initial_api_sync_reconciles_csv_without_merging_distinct_same_day_session(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch
 ) -> None:
+    monkeypatch.setenv("HEVY_TIMEZONE", "America/Denver")
     db = tmp_path / "hevy.db"
     csv_path = tmp_path / "synthetic.csv"
     csv_path.write_text(

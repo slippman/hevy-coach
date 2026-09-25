@@ -41,7 +41,9 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Max-effort bodyweight and timed sets now repeat the actual result instead of being raised to a
   configured minimum, and timed progress is reported as adding time rather than adding reps.
 - First-session weighted targets preserve the actual baseline even below the configured range,
-  Markdown reports display timed sets in seconds, and workout details retain distance results.
+  Markdown reports and recommendation evidence display timed sets in seconds, and workout details
+  retain distance results.
+- Recommendation explanations and their prescribed sets now stay aligned when RPE was not logged.
 - A routine can explicitly use a different working-set count for one exercise without changing
   that exercise everywhere else or inferring a permanent change from an extra logged set.
 - Gym cards now fit the workout into one compact table. Explanation mode puts a short, grouped

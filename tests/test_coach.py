@@ -293,6 +293,7 @@ def test_established_duration_progression_uses_add_time_action() -> None:
 
     assert recommendation.action is Action.ADD_TIME
     assert recommendation.action.value == "add time"
+    assert recommendation.evidence == "Working duration 50/50/50 seconds; last-set RPE 8"
     assert decision.reasoning_category is DecisionReason.ADD_TIME
     assert decision.target_durations == (55, 55, 55)
 
@@ -518,6 +519,25 @@ def test_configured_warmup_does_not_affect_progression_decision() -> None:
     assert "45 lb × 10 for all 3 sets" in decision.explanation
     assert "top of your 6–10 rep range" in decision.explanation
     assert "move up to 50 lb × 6 for all 3 sets" in decision.explanation
+
+
+def test_ceiling_without_rpe_keeps_recommendation_and_target_in_sync() -> None:
+    _, policies = load_config()
+    policy = next(item for item in policies if item.name == "Bench Press (Dumbbell)")
+    first = datetime(2024, 1, 1, tzinfo=UTC)
+    records = [
+        _set(policy.name, index, 45, policy.rep_max, None, first + timedelta(days=session * 3))
+        for session in range(2)
+        for index in range(policy.sets)
+    ]
+
+    decision = exercise_decision(records, policy)
+
+    assert decision.recommendation.action is Action.INCREASE_WEIGHT
+    assert decision.reasoning_category is DecisionReason.WEIGHT_UP
+    assert decision.target_weight == 50
+    assert decision.target_reps == (policy.rep_min,) * policy.sets
+    assert "move up to 50 lb" in decision.explanation
 
 
 def test_high_rpe_uneven_sets_are_repeated_and_described_accurately() -> None:
