@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from collections import OrderedDict
-from dataclasses import asdict
+from dataclasses import asdict, replace
 
 from .coach import recommend_all, working_sets
 from .models import ExercisePolicy, RoutinePolicy, SetRecord
+from .time_utils import as_local, local_date
 
 
 def _weight(value: float | None) -> str:
@@ -38,12 +39,18 @@ def report_payload(
     if not records:
         raise ValueError("No imported workouts available; run `hevy-coach import PATH` first.")
     first = records[0]
+    effective_policies = [
+        replace(policy, sets=routine.working_set_count(policy.name, policy.sets))
+        if routine
+        else policy
+        for policy in policies
+    ]
     exercises = []
     for title, sets in _group(records).items():
         policy = next(
             (
                 item
-                for item in policies
+                for item in effective_policies
                 if title.casefold()
                 in {item.name.casefold(), *(alias.casefold() for alias in item.aliases)}
             ),
@@ -65,7 +72,7 @@ def report_payload(
         {**asdict(item), "action": item.action.value}
         for item in recommend_all(
             history_records or records,
-            policies,
+            effective_policies,
             dict(routine.warmup_set_counts) if routine else None,
         )
     ]
@@ -73,8 +80,8 @@ def report_payload(
     return {
         "workout": {
             "title": first.routine,
-            "date": first.started_at.date().isoformat(),
-            "start_time": first.started_at.isoformat(),
+            "date": local_date(first.started_at).isoformat(),
+            "start_time": as_local(first.started_at).isoformat(),
             "duration_seconds": duration,
             "exercise_count": len(exercises),
             "set_count": len(records),
@@ -125,10 +132,16 @@ def markdown(payload: dict) -> str:
 def _json_sets(items: list[dict]) -> str:
     if not items:
         return "none"
-    return ", ".join(
-        f"{_weight(item['weight_lbs'])} × {item['reps'] if item['reps'] is not None else '—'}"
-        for item in items
-    )
+    rendered = []
+    for item in items:
+        if item["duration_seconds"] is not None:
+            rendered.append(f"{item['duration_seconds']} sec")
+        else:
+            rendered.append(
+                f"{_weight(item['weight_lbs'])} × "
+                f"{item['reps'] if item['reps'] is not None else '—'}"
+            )
+    return ", ".join(rendered)
 
 
 def dated_filename(payload: dict) -> str:
