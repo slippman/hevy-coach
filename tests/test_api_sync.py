@@ -288,6 +288,32 @@ def test_api_client_paginates_and_sends_key_without_exposing_it() -> None:
     assert "page=2" in requests[1][0].full_url
 
 
+def test_api_client_accepts_workouts_response_as_updated_events() -> None:
+    workout = workout_payload()
+    payload = {"page": 1, "page_count": 1, "workouts": [workout]}
+
+    with patch(
+        "hevy_coach.hevy_api.urlopen",
+        return_value=FakeResponse(json.dumps(payload).encode()),
+    ):
+        events = list(HevyAPI("top-secret").iter_workout_events("2026-08-01T00:00:00Z"))
+
+    assert events == [{"type": "updated", "workout": workout}]
+
+
+def test_api_client_accepts_event_wrappers_under_workouts_key() -> None:
+    deleted = {"type": "deleted", "id": "workout-1"}
+    payload = {"page": 1, "page_count": 1, "workouts": [deleted]}
+
+    with patch(
+        "hevy_coach.hevy_api.urlopen",
+        return_value=FakeResponse(json.dumps(payload).encode()),
+    ):
+        events = list(HevyAPI("top-secret").iter_workout_events("2026-08-01T00:00:00Z"))
+
+    assert events == [deleted]
+
+
 def test_api_client_fetches_an_encoded_exercise_template_id() -> None:
     payload = {"id": "push/up", "title": "Push Up", "type": "bodyweight_reps"}
     with patch(

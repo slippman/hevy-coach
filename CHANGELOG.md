@@ -38,6 +38,7 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   volume, estimated strength, or trends.
 - API sync keeps added weight on bodyweight exercises, and exercise history combines sessions
   logged under any configured name for the same movement.
+- API sync accepts both documented workout events and Hevy's alternate paginated workout response.
 - Max-effort bodyweight and timed sets now repeat the actual result instead of being raised to a
   configured minimum, and timed progress is reported as adding time rather than adding reps.
 - First-session weighted targets preserve the actual baseline even below the configured range,

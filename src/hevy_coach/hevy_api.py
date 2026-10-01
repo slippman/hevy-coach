@@ -71,6 +71,15 @@ class HevyAPI:
             payload = self.workout_events(since, page=page)
             events = payload.get("events")
             page_count = payload.get("page_count")
+            if events is None and isinstance(payload.get("workouts"), list):
+                events = []
+                for item in payload["workouts"]:
+                    if not isinstance(item, dict):
+                        raise HevyAPIError("Hevy returned a malformed workout.")
+                    if item.get("type") in {"updated", "deleted"}:
+                        events.append(item)
+                    else:
+                        events.append({"type": "updated", "workout": item})
             if not isinstance(events, list) or not isinstance(page_count, int):
                 raise HevyAPIError("Hevy returned malformed workout event data.")
             for event in events:
