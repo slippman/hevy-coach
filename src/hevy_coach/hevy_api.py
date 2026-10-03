@@ -31,6 +31,7 @@ class HevyAPI:
         self._api_key = api_key.strip()
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout
+        self.event_stream_includes_deletions = True
 
     def _get(self, path: str, parameters: Mapping[str, object]) -> dict[str, Any]:
         query = urlencode(parameters)
@@ -66,12 +67,14 @@ class HevyAPI:
 
     def iter_workout_events(self, since: str) -> Iterator[dict[str, Any]]:
         """Yield every workout event since an ISO 8601 timestamp."""
+        self.event_stream_includes_deletions = True
         page = 1
         while True:
             payload = self.workout_events(since, page=page)
             events = payload.get("events")
             page_count = payload.get("page_count")
             if events is None and isinstance(payload.get("workouts"), list):
+                self.event_stream_includes_deletions = False
                 events = []
                 for item in payload["workouts"]:
                     if not isinstance(item, dict):
