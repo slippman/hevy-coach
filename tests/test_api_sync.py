@@ -288,6 +288,57 @@ def test_api_client_paginates_and_sends_key_without_exposing_it() -> None:
     assert "page=2" in requests[1][0].full_url
 
 
+def test_api_client_accepts_workouts_response_as_updated_events() -> None:
+    workout = workout_payload()
+    payload = {"page": 1, "page_count": 1, "workouts": [workout]}
+
+    client = HevyAPI("top-secret")
+    with patch(
+        "hevy_coach.hevy_api.urlopen",
+        return_value=FakeResponse(json.dumps(payload).encode()),
+    ):
+        events = list(client.iter_workout_events("2026-08-01T00:00:00Z"))
+
+    assert events == [{"type": "updated", "workout": workout}]
+    assert client.event_stream_includes_deletions is False
+
+
+def test_api_client_accepts_event_wrappers_under_workouts_key() -> None:
+    deleted = {"type": "deleted", "id": "workout-1"}
+    payload = {"page": 1, "page_count": 1, "workouts": [deleted]}
+
+    with patch(
+        "hevy_coach.hevy_api.urlopen",
+        return_value=FakeResponse(json.dumps(payload).encode()),
+    ):
+        events = list(HevyAPI("top-secret").iter_workout_events("2026-08-01T00:00:00Z"))
+
+    assert events == [deleted]
+
+
+def test_alternate_workout_response_does_not_advance_deletion_cursor(tmp_path: Path) -> None:
+    db = tmp_path / "hevy.db"
+    start = datetime(2026, 8, 1, tzinfo=UTC)
+    now = datetime(2026, 8, 2, tzinfo=UTC)
+    payload = {"page": 1, "page_count": 1, "workouts": []}
+    client = HevyAPI("top-secret")
+
+    with (
+        patch(
+            "hevy_coach.hevy_api.urlopen",
+            return_value=FakeResponse(json.dumps(payload).encode()),
+        ),
+        database(db) as connection,
+    ):
+        sync_workouts(connection, client, since=start, now=now)
+        state = connection.execute(
+            "SELECT cursor, synced_at FROM sync_state WHERE provider = 'hevy_api'"
+        ).fetchone()
+
+    assert state["cursor"] == start.isoformat()
+    assert state["synced_at"] == now.isoformat()
+
+
 def test_api_client_fetches_an_encoded_exercise_template_id() -> None:
     payload = {"id": "push/up", "title": "Push Up", "type": "bodyweight_reps"}
     with patch(

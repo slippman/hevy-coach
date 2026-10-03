@@ -435,6 +435,7 @@ def sync_workouts(
     synced_at = (now or datetime.now(UTC)).astimezone(UTC)
     start = (since or _default_since(connection, synced_at)).astimezone(UTC)
     events = list(source.iter_workout_events(start.isoformat().replace("+00:00", "Z")))
+    cursor = synced_at if getattr(source, "event_stream_includes_deletions", True) else start
     exercise_types, fetched_templates = _exercise_templates(connection, source, events)
 
     added = updated = deleted = 0
@@ -464,6 +465,6 @@ def sync_workouts(
             """INSERT INTO sync_state(provider, cursor, synced_at) VALUES (?, ?, ?)
                ON CONFLICT(provider) DO UPDATE SET cursor = excluded.cursor,
                                                    synced_at = excluded.synced_at""",
-            (PROVIDER, synced_at.isoformat(), synced_at.isoformat()),
+            (PROVIDER, cursor.isoformat(), synced_at.isoformat()),
         )
     return SyncResult(start, synced_at, added, updated, deleted)
