@@ -9,6 +9,9 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Gym cards can now point out when a saved Hevy routine differs from the next-session plan. With
+  `--update-hevy`, you can review those differences and approve updating the routine; nothing is
+  changed without confirmation.
 - Hevy Coach can now pull workouts directly from the Hevy Pro API. It remembers where the last
   sync stopped, so everyday updates stay quick.
 - Gym cards now understand bodyweight exercises, timed exercises, and supersets. New exercises
@@ -18,6 +21,9 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Weight progressions can now follow equipment-specific or exercise-specific available loads, and
+  will hold steady when the next option would be an unreasonable jump. Routine update previews now
+  show real weights and reps instead of treating Hevy's unused zero fields as timed sets.
 - Workout names and routine details can live in the private config beside your database instead
   of being baked into the project. Small spacing and punctuation differences match automatically.
 - API sync keeps Hevy's exercise type and superset information. Bodyweight work no longer looks

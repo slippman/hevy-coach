@@ -30,6 +30,7 @@ class CardItem:
     last_rpe: float | None = None
     rep_min: int | None = None
     rep_max: int | None = None
+    canonical_exercise: str = ""
 
 
 @dataclass(frozen=True)
@@ -204,6 +205,7 @@ def build_card(
                 decision.last_rpe,
                 decision.rep_min,
                 decision.rep_max,
+                canonical,
             )
         )
     display = routine.display_title if routine else title

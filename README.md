@@ -120,6 +120,7 @@ uv run hevy-coach gym-card --workout "Strength B"
 uv run hevy-coach gym-card --workout "Bodyweight Circuit"
 uv run hevy-coach gym-card --workout "Strength A" --clipboard
 uv run hevy-coach gym-card --workout "Strength A" --explain
+uv run hevy-coach gym-card --workout "Strength A" --update-hevy
 uv run hevy-coach gym-card --json
 uv run hevy-coach gym-card --all
 ```
@@ -133,6 +134,20 @@ list of matches. `--all` exposes older or unconfigured workout titles.
 Default mode prints the card to standard output and never touches the clipboard. `--clipboard`
 copies the card with `pbcopy`, prints no card, and confirms only on standard error. `--json`
 emits structured JSON only. `--clipboard` cannot be combined with `--stdout` or `--json`.
+
+When `HEVY_API_KEY` is set, `gym-card` also compares the recommended sets with the matching saved
+routine in Hevy. Any differences are listed after the card; JSON output includes the same details
+under `hevy_routine`. This comparison is read-only by default.
+
+Pass `--update-hevy` when you want to apply the recommendation to the saved routine. Hevy Coach
+prints an update preview with every proposed change, confirms that nothing has been changed yet,
+and then asks for approval before sending anything. Answering no leaves Hevy unchanged. An
+approved update changes only the planned sets for exercises already present in the routine and
+preserves its title, notes, exercise order, rest times, supersets, and unrelated exercises. A
+configured exercise that is missing from the saved routine is reported for review and is never
+added automatically. A configured warm-up is shown as a warm-up in the preview even when Hevy
+returns that routine set as `normal`; that label difference alone is not treated as a change, and
+the saved set type is preserved. `--update-hevy` cannot be combined with `--json`.
 
 Cards use only the selected workout's latest session, retain the configured exercise order,
 and include warm-ups only when Hevy labels them or the routine config explicitly provides a
@@ -217,26 +232,45 @@ uv run hevy-coach gym-card --config my-progression.toml
 ```
 
 Category defaults live under `[defaults.categories]`: compounds are 6–10, isolations are 8–10,
-and core work is 8–12. An exercise inherits the global default, then its category, then any
-exercise-specific override (highest precedence). For example:
+and core work is 8–12. Equipment profiles can supply their own increments, available weights, and
+maximum reasonable percentage jump. An exercise inherits the global default, then its category,
+then its equipment profile, then any exercise-specific override (highest precedence):
+
+```toml
+[defaults.equipment.dumbbell]
+increment_lbs = 5
+available_weights_lbs = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50]
+max_increase_percent = 25
+```
+
+An exercise can replace that list when the gym has smaller dumbbells for a particular movement:
 
 ```toml
 [exercises."Lateral Raise (Dumbbell)"]
 category = "isolation"
+equipment = "dumbbell"
 min_reps = 8
 max_reps = 10
-increment_lbs = 5
+available_weights_lbs = [5, 8, 10, 12, 15, 20, 25, 30]
 large_increment = true
 ```
 
+When a weight list is present, the coach selects the next listed load instead of adding an
+arbitrary number. `max_increase_percent` blocks a listed weight that would still be too large; if
+there is no reasonable next load, the current ceiling prescription is repeated. Without a weight
+list, `increment_lbs` keeps its existing behavior, so cable stacks and machines can use their own
+increments without pretending every piece of equipment is the same.
+
 You do not need to edit Python to change these preferences. Gym cards never prescribe more than
-an exercise’s configured maximum. At the top of range, RPE ≤ 8.5 increases the configured load
-and resets reps to the range minimum; RPE 9–9.5 repeats the ceiling. For a large percentage jump,
-set `large_increment = true`. The engine then requires two consecutive successful ceiling sessions
-(all target reps at last-set RPE ≤ 8.5) before increasing load. A missed ceiling or higher-RPE
-session resets that confirmation streak. For example, the configured Lateral Raise repeats 10 lb
-× 10/10/10 after its first clean ceiling session, then prescribes 15 lb × 8/8/8 after a second
-consecutive clean ceiling session. RPE 10 retains the existing hold or reduce behavior.
+an exercise’s configured rep maximum. At the top of range, RPE ≤ 8.5 selects the next reasonable
+load and resets reps to the range minimum; RPE 9–9.5 repeats the ceiling. For a large percentage
+jump, set `large_increment = true`. The engine then requires two consecutive successful ceiling
+sessions at the same load (all target reps at last-set RPE ≤ 8.5) before increasing. A missed
+ceiling, a weight change, or higher-RPE session resets that confirmation streak. For example, the
+configured Lateral Raise repeats 12 lb × 10/10/10 after its first clean ceiling session, then
+prescribes 15 lb × 8/8/8 after a second consecutive clean ceiling session. It never invents a
+17 lb dumbbell because 17 is not in the configured list. RPE 10 retains the existing hold or
+reduce behavior.
 
 An exercise can keep its usual set count in most routines while using an explicit override in one
 routine. This is a deliberate programming choice; Hevy Coach never changes it merely because an

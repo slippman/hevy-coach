@@ -38,12 +38,21 @@ def load_config(path: str | Path | None = None) -> tuple[list[str], list[Exercis
     defaults = data.get("defaults", {})
     global_default = defaults.get("global", {})
     categories = defaults.get("categories", {})
+    equipment_defaults = defaults.get("equipment", {})
     policies = []
     for name, values in data.get("exercises", {}).items():
         category = str(values.get("category", "global"))
         if category != "global" and category not in VALID_CATEGORIES:
             raise ValueError(f"exercise {name!r} has unknown category {category!r}")
-        inherited = {**global_default, **categories.get(category, {}), **values}
+        equipment = str(values["equipment"]) if "equipment" in values else None
+        if equipment and equipment not in equipment_defaults:
+            raise ValueError(f"exercise {name!r} has unknown equipment {equipment!r}")
+        inherited = {
+            **global_default,
+            **categories.get(category, {}),
+            **equipment_defaults.get(equipment, {}),
+            **values,
+        }
         progression = str(values.get("progression", "weighted_reps"))
         if progression not in VALID_PROGRESSIONS:
             raise ValueError(f"exercise {name!r} has unknown progression {progression!r}")
@@ -54,6 +63,18 @@ def load_config(path: str | Path | None = None) -> tuple[list[str], list[Exercis
         sets = int(inherited["sets"])
         if sets <= 0:
             raise ValueError(f"exercise {name!r}.sets must be positive")
+        available_weights = tuple(
+            sorted({float(weight) for weight in inherited.get("available_weights_lbs", [])})
+        )
+        if any(weight <= 0 for weight in available_weights):
+            raise ValueError(f"exercise {name!r}.available_weights_lbs must be positive")
+        max_increase_percent = (
+            float(inherited["max_increase_percent"])
+            if "max_increase_percent" in inherited
+            else None
+        )
+        if max_increase_percent is not None and max_increase_percent <= 0:
+            raise ValueError(f"exercise {name!r}.max_increase_percent must be positive")
         policies.append(
             ExercisePolicy(
                 name=name,
@@ -89,6 +110,9 @@ def load_config(path: str | Path | None = None) -> tuple[list[str], list[Exercis
                     if "increment_seconds" in values
                     else None
                 ),
+                equipment=equipment,
+                available_weights=available_weights,
+                max_increase_percent=max_increase_percent,
             )
         )
         policy = policies[-1]

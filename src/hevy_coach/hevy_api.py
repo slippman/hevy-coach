@@ -33,12 +33,26 @@ class HevyAPI:
         self._timeout = timeout
         self.event_stream_includes_deletions = True
 
-    def _get(self, path: str, parameters: Mapping[str, object]) -> dict[str, Any]:
+    def _request(
+        self,
+        method: str,
+        path: str,
+        parameters: Mapping[str, object] | None = None,
+        body: Mapping[str, object] | None = None,
+    ) -> dict[str, Any]:
+        parameters = parameters or {}
         query = urlencode(parameters)
         suffix = f"?{query}" if query else ""
+        headers = {"api-key": self._api_key, "Accept": "application/json"}
+        data = None
+        if body is not None:
+            data = json.dumps(body).encode("utf-8")
+            headers["Content-Type"] = "application/json"
         request = Request(
             f"{self._base_url}{path}{suffix}",
-            headers={"api-key": self._api_key, "Accept": "application/json"},
+            data=data,
+            headers=headers,
+            method=method,
         )
         try:
             with urlopen(request, timeout=self._timeout) as response:
@@ -57,6 +71,9 @@ class HevyAPI:
         if not isinstance(payload, dict):
             raise HevyAPIError("Hevy returned an unexpected response shape.")
         return payload
+
+    def _get(self, path: str, parameters: Mapping[str, object]) -> dict[str, Any]:
+        return self._request("GET", path, parameters)
 
     def workout_events(self, since: str, *, page: int = 1, page_size: int = 10) -> dict[str, Any]:
         """Return one page of updated or deleted workouts."""
@@ -96,3 +113,36 @@ class HevyAPI:
     def exercise_template(self, template_id: str) -> dict[str, Any]:
         """Return one exercise template, including its progression modality."""
         return self._get(f"/exercise_templates/{quote(template_id, safe='')}", {})
+
+    def iter_routines(self) -> Iterator[dict[str, Any]]:
+        """Yield every saved Hevy routine."""
+        page = 1
+        while True:
+            payload = self._get("/routines", {"page": page, "pageSize": 10})
+            routines = payload.get("routines")
+            page_count = payload.get("page_count")
+            if not isinstance(routines, list) or not isinstance(page_count, int):
+                raise HevyAPIError("Hevy returned malformed routine data.")
+            for routine in routines:
+                if not isinstance(routine, dict):
+                    raise HevyAPIError("Hevy returned a malformed routine.")
+                yield routine
+            if page >= page_count:
+                return
+            page += 1
+
+    def routine(self, routine_id: str) -> dict[str, Any]:
+        """Return one saved Hevy routine."""
+        payload = self._get(f"/routines/{quote(routine_id, safe='')}", {})
+        routine = payload.get("routine", payload)
+        if not isinstance(routine, dict):
+            raise HevyAPIError("Hevy returned malformed routine data.")
+        return routine
+
+    def update_routine(self, routine_id: str, routine: Mapping[str, object]) -> dict[str, Any]:
+        """Replace one saved Hevy routine after the caller has obtained approval."""
+        return self._request(
+            "PUT",
+            f"/routines/{quote(routine_id, safe='')}",
+            body={"routine": routine},
+        )

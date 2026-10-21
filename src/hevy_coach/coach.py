@@ -23,6 +23,35 @@ def _fmt_weight(weight: float) -> str:
     return str(int(value)) if value.is_integer() else f"{value:g}"
 
 
+def _next_weight(policy: ExercisePolicy, current: float) -> float | None:
+    """Return the next configured and reasonably sized load, if one exists."""
+    if policy.available_weights:
+        candidate = next(
+            (weight for weight in policy.available_weights if weight > current + 0.01), None
+        )
+    else:
+        candidate = current + policy.increment
+    if candidate is None:
+        return None
+    if (
+        policy.max_increase_percent is not None
+        and current > 0
+        and ((candidate - current) / current) * 100 > policy.max_increase_percent + 1e-9
+    ):
+        return None
+    return candidate
+
+
+def _previous_weight(policy: ExercisePolicy, current: float) -> float | None:
+    """Return the nearest lower configured load, if one exists."""
+    if policy.available_weights:
+        return next(
+            (weight for weight in reversed(policy.available_weights) if weight < current - 0.01),
+            None,
+        )
+    return max(0.0, current - policy.increment)
+
+
 def _latest_working_sets(
     records: Iterable[SetRecord], policy: ExercisePolicy, warmup_set_count: int = 0
 ) -> list[SetRecord]:
@@ -88,8 +117,16 @@ def large_increment_confirmation_streak(
 ) -> int:
     """Count consecutive successful ceiling sessions ending with the latest one."""
     streak = 0
+    expected_weight: float | None = None
     for session in reversed(_exercise_sessions(records, policy, warmup_set_count)):
         if not _successful_ceiling_session(session, policy):
+            break
+        session_weight = next(
+            (item.weight for item in reversed(session) if item.weight is not None), None
+        )
+        if expected_weight is None:
+            expected_weight = session_weight
+        elif session_weight is None or abs(session_weight - expected_weight) > 0.01:
             break
         streak += 1
     return streak
@@ -138,22 +175,24 @@ def next_session_target(
         return None, reps
     if last_rpe is not None and last_rpe >= 9.5:
         if min(logged) <= policy.rep_min - 3:
-            return (max(0.0, weight - policy.increment) if weight is not None else None), [
+            lower_weight = _previous_weight(policy, weight) if weight is not None else None
+            return (lower_weight if lower_weight is not None else weight), [
                 policy.rep_min
             ] * policy.sets
         return weight, [min(policy.rep_max, rep) for rep in logged[: policy.sets]]
     at_ceiling = len(reps) >= policy.sets and all(rep >= policy.rep_max for rep in reps)
     if at_ceiling:
         if (last_rpe is None or last_rpe <= 8.5) and not policy.large_increment:
-            return (weight + policy.increment if weight is not None else None), [
-                policy.rep_min
-            ] * policy.sets
+            next_weight = _next_weight(policy, weight) if weight is not None else None
+            if next_weight is not None:
+                return next_weight, [policy.rep_min] * policy.sets
+            return weight, [policy.rep_max] * policy.sets
         if policy.large_increment and _successful_ceiling_session(sets, policy):
             history = list(history_records) if history_records is not None else sets
             if large_increment_confirmation_streak(history, policy, warmup_set_count) >= 2:
-                return (weight + policy.increment if weight is not None else None), [
-                    policy.rep_min
-                ] * policy.sets
+                next_weight = _next_weight(policy, weight) if weight is not None else None
+                if next_weight is not None:
+                    return next_weight, [policy.rep_min] * policy.sets
         return weight, [policy.rep_max] * policy.sets
     if len(set(reps)) == 1:
         return weight, [min(policy.rep_max, reps[0] + 1)] * len(reps)
@@ -284,7 +323,15 @@ def recommend_exercise(
 
     far_below_range = min(reps) <= policy.rep_min - 3
     if last_rpe is not None and last_rpe >= 9.5 and far_below_range:
-        next_weight = max(0.0, weight - policy.increment)
+        next_weight = _previous_weight(policy, weight)
+        if next_weight is None:
+            return Recommendation(
+                policy.name,
+                Action.HOLD_WEIGHT,
+                weight,
+                f"Keep {label} lb; no lower configured weight is available.",
+                evidence,
+            )
         return Recommendation(
             policy.name,
             Action.REDUCE_WEIGHT,
@@ -317,12 +364,20 @@ def recommend_exercise(
         successful = _successful_ceiling_session(sets, policy)
         confirmations = large_increment_confirmation_streak(materialized, policy, warmup_set_count)
         if successful and confirmations >= 2:
-            next_weight = weight + policy.increment
+            next_weight = _next_weight(policy, weight)
+            if next_weight is not None:
+                return Recommendation(
+                    policy.name,
+                    Action.INCREASE_WEIGHT,
+                    next_weight,
+                    f"Increase one increment to {_fmt_weight(next_weight)} lb next time.",
+                    evidence,
+                )
             return Recommendation(
                 policy.name,
-                Action.INCREASE_WEIGHT,
-                next_weight,
-                f"Increase one increment to {_fmt_weight(next_weight)} lb next time.",
+                Action.HOLD_WEIGHT,
+                weight,
+                f"Keep {label} lb; no reasonable configured weight increase is available.",
                 evidence,
             )
         if successful:
@@ -334,12 +389,20 @@ def recommend_exercise(
             message = f"Keep {label} lb; repeat {policy.sets}×{policy.rep_max} before increasing."
         return Recommendation(policy.name, Action.HOLD_WEIGHT, weight, message, evidence)
     if range_topped and (last_rpe is None or last_rpe <= 8.5) and not policy.large_increment:
-        next_weight = weight + policy.increment
+        next_weight = _next_weight(policy, weight)
+        if next_weight is not None:
+            return Recommendation(
+                policy.name,
+                Action.INCREASE_WEIGHT,
+                next_weight,
+                f"Increase one increment to {_fmt_weight(next_weight)} lb next time.",
+                evidence,
+            )
         return Recommendation(
             policy.name,
-            Action.INCREASE_WEIGHT,
-            next_weight,
-            f"Increase one increment to {_fmt_weight(next_weight)} lb next time.",
+            Action.HOLD_WEIGHT,
+            weight,
+            f"Keep {label} lb; no reasonable configured weight increase is available.",
             evidence,
         )
     if range_topped:
