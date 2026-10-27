@@ -21,6 +21,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Gym cards and approved routine updates keep every configured or explicitly logged warm-up set,
+  so a routine with several warm-ups no longer loses all but the first.
 - Weight progressions can now follow equipment-specific or exercise-specific available loads, and
   will hold steady when the next option would be an unreasonable jump. Routine update previews now
   show real weights and reps instead of treating Hevy's unused zero fields as timed sets.

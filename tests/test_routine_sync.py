@@ -1,13 +1,14 @@
 import io
 import json
+from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
 import pytest
 
 from hevy_coach.api_sync import KG_TO_LBS
-from hevy_coach.gym_card import CardItem, CardSet
+from hevy_coach.gym_card import CardItem, CardSet, build_card, card_json, render_card
 from hevy_coach.hevy_api import HevyAPI, HevyAPIError
-from hevy_coach.models import ExercisePolicy, RoutinePolicy
+from hevy_coach.models import ExercisePolicy, RoutinePolicy, SetRecord
 from hevy_coach.routine_sync import compare_routine, comparison_json
 
 
@@ -230,6 +231,72 @@ def test_configured_warmup_does_not_create_drift_when_hevy_calls_it_normal() -> 
 
     assert not comparison.differences
     assert comparison.update_payload["exercises"][0]["sets"][0]["type"] == "normal"
+
+
+@pytest.mark.parametrize(
+    "warmup_types", [("normal", "normal"), ("warmup", "normal"), ("warmup", "warmup")]
+)
+def test_card_preview_and_update_keep_all_configured_warmups(warmup_types) -> None:
+    policy = _policy("Machine Press")
+    routine = RoutinePolicy(
+        "Strength A",
+        "Strength A",
+        (policy.name,),
+        warmup_set_counts=((policy.name, 2),),
+    )
+    first = datetime(2026, 1, 1, tzinfo=UTC)
+    records = [
+        SetRecord(
+            routine.title, first + timedelta(days=day), policy.name, index, kind, load, reps, 8
+        )
+        for day in (0, 3)
+        for index, (kind, load, reps) in enumerate(
+            [(warmup_types[0], 20, 8), (warmup_types[1], 40, 8), *[("normal", 60, 9)] * 3]
+        )
+    ]
+    saved_sets = [
+        _set(20, 8, set_type=warmup_types[0]),
+        _set(40, 8, set_type=warmup_types[1]),
+        *[_set(60, 9) for _ in range(3)],
+    ]
+    api = FakeAPI(_routine(_exercise(policy.name, saved_sets)))
+
+    title, items = build_card(routine, routine.title, records, [policy])
+    item = items[0]
+    comparison = compare_routine(api, routine, items, [policy])
+    updated_sets = comparison.update_payload["exercises"][0]["sets"]
+
+    assert item.warmup_count == 2
+    assert len(item.planned_sets) == 5
+    assert [planned.number for planned in item.planned_sets] == [1, 2, 3, 4, 5]
+    assert "20×8, 40×8" in render_card(title, items)
+    assert "60×10×3" in render_card(title, items)
+    assert len(card_json(title, items)["exercises"][0]["sets"]) == 5
+    assert len(comparison.differences) == 1
+    assert "20×8 warm-up, 40×8 warm-up" in comparison.differences[0].recommended
+    assert updated_sets[:2] == saved_sets[:2]
+    assert [planned["reps"] for planned in updated_sets[2:]] == [10, 10, 10]
+    assert len(updated_sets) == len(saved_sets)
+
+    api.saved["exercises"][0]["sets"] = updated_sets
+    assert not compare_routine(api, routine, items, [policy]).differences
+
+
+def test_explicit_warmups_are_kept_without_configured_count() -> None:
+    policy = _policy("Machine Press")
+    routine = RoutinePolicy("Strength A", "Strength A", (policy.name,))
+    started = datetime(2026, 1, 1, tzinfo=UTC)
+    records = [
+        SetRecord(routine.title, started, policy.name, index, kind, weight, 8, 8)
+        for index, (kind, weight) in enumerate(
+            [("warmup", 20), ("warmup", 40), *[("normal", 60)] * 3]
+        )
+    ]
+
+    _, items = build_card(routine, routine.title, records, [policy])
+
+    assert items[0].warmup_count == 2
+    assert [planned.weight for planned in items[0].planned_sets] == [20, 40, 60, 60, 60]
 
 
 def test_preview_compacts_warmup_and_uneven_working_sets() -> None:

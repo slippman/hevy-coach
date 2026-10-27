@@ -148,6 +148,8 @@ configured exercise that is missing from the saved routine is reported for revie
 added automatically. A configured warm-up is shown as a warm-up in the preview even when Hevy
 returns that routine set as `normal`; that label difference alone is not treated as a change, and
 the saved set type is preserved. `--update-hevy` cannot be combined with `--json`.
+When an exercise has several configured or explicitly logged warm-up sets, the card lists them all
+in the Warm-up column and keeps them in the proposed Hevy update.
 
 Cards use only the selected workout's latest session, retain the configured exercise order,
 and include warm-ups only when Hevy labels them or the routine config explicitly provides a

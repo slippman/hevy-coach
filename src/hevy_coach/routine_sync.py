@@ -98,7 +98,7 @@ def _desired_set(item: CardSet, *, warmup: bool) -> dict[str, Any]:
 
 def _desired_sets(item: CardItem) -> list[dict[str, Any]]:
     return [
-        _desired_set(planned, warmup=bool(item.warmup and index == 0))
+        _desired_set(planned, warmup=index < item.warmup_count)
         for index, planned in enumerate(item.planned_sets)
     ]
 
@@ -206,7 +206,7 @@ def compare_routine(
             if index < len(current) and current[index].get("type"):
                 target["type"] = current[index]["type"]
         if not _sets_match(current, desired):
-            warmup_count = 1 if item.warmup else 0
+            warmup_count = item.warmup_count
             differences.append(
                 RoutineDifference(
                     item.exercise,
@@ -222,7 +222,7 @@ def compare_routine(
                 RoutineDifference(
                     item.exercise,
                     "exercise not found in saved routine",
-                    _compact_sets(_desired_sets(item), warmup_count=1 if item.warmup else 0),
+                    _compact_sets(_desired_sets(item), warmup_count=item.warmup_count),
                     updatable=False,
                 )
             )
