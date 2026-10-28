@@ -13,7 +13,7 @@ from hevy_coach.coach import (
 )
 from hevy_coach.config import load_config, load_routine_policies, resolve_routine
 from hevy_coach.gym_card import build_card, render_card, unknown_routine_exercises
-from hevy_coach.models import Action, DecisionReason, SetRecord
+from hevy_coach.models import Action, DecisionReason, ExercisePolicy, SetRecord
 from hevy_coach.parser import read_hevy_csv
 
 FIXTURE = Path(__file__).parent / "fixtures" / "current_workouts.csv"
@@ -390,23 +390,23 @@ def test_unknown_exercises_are_reported_without_changing_the_routine() -> None:
 
 
 @pytest.mark.parametrize(
-    ("exercise", "reps", "maximum"),
+    ("exercise", "weight", "reps", "maximum"),
     [
-        ("Cable Fly Crossovers", 13, 10),
-        ("Lateral Raise (Dumbbell)", 13, 10),
-        ("Bench Press (Dumbbell)", 11, 10),
-        ("Crunch (Machine)", 13, 12),
+        ("Cable Fly Crossovers", 10, 13, 10),
+        ("Lateral Raise (Dumbbell)", 10, 13, 10),
+        ("Bench Press (Dumbbell)", 45, 11, 10),
+        ("Crunch (Machine)", 90, 13, 12),
     ],
 )
 def test_card_targets_never_exceed_configured_rep_ceiling(
-    exercise: str, reps: int, maximum: int
+    exercise: str, weight: float, reps: int, maximum: int
 ) -> None:
     _, policies = load_config()
     policy = next(item for item in policies if item.name == exercise)
     first = datetime(2024, 1, 1, tzinfo=UTC)
     second = first + timedelta(days=3)
-    records = [_set(exercise, index, 10, reps, 8, first) for index in range(policy.sets)] + [
-        _set(exercise, index, 10, reps, 8, second) for index in range(policy.sets)
+    records = [_set(exercise, index, weight, reps, 8, first) for index in range(policy.sets)] + [
+        _set(exercise, index, weight, reps, 8, second) for index in range(policy.sets)
     ]
 
     _, target = next_session_target(records[-policy.sets :], policy, "established", records)
@@ -559,9 +559,9 @@ def test_high_rpe_uneven_sets_are_repeated_and_described_accurately() -> None:
 
 
 def _ceiling_session(
-    policy_name: str, started_at: datetime, rpe: float, reps: int
+    policy_name: str, started_at: datetime, rpe: float, reps: int, weight: float = 10
 ) -> list[SetRecord]:
-    return [_set(policy_name, index, 10, reps, rpe, started_at) for index in range(3)]
+    return [_set(policy_name, index, weight, reps, rpe, started_at) for index in range(3)]
 
 
 def test_large_increment_requires_two_consecutive_successful_ceiling_sessions() -> None:
@@ -594,9 +594,9 @@ def test_large_increment_requires_two_consecutive_successful_ceiling_sessions() 
     weight, target = next_session_target(second_success, lateral_raise, "established", all_records)
     recommendation = recommend_exercise(all_records, lateral_raise)
 
-    assert (weight, target) == (15, [lateral_raise.rep_min] * 3)
+    assert (weight, target) == (12, [lateral_raise.rep_min] * 3)
     assert recommendation.action is Action.INCREASE_WEIGHT
-    assert recommendation.weight == 15
+    assert recommendation.weight == 12
 
 
 def test_large_increment_high_rpe_or_missed_ceiling_resets_confirmation_streak() -> None:
@@ -642,7 +642,7 @@ def test_skipping_an_exercise_in_a_partial_workout_does_not_reset_its_progressio
 
     weight, target = next_session_target(second_success, lateral_raise, "established", records)
 
-    assert (weight, target) == (15, [lateral_raise.rep_min] * 3)
+    assert (weight, target) == (12, [lateral_raise.rep_min] * 3)
 
 
 def test_normal_increment_exercise_progresses_after_one_successful_ceiling_session() -> None:
@@ -654,6 +654,89 @@ def test_normal_increment_exercise_progresses_after_one_successful_ceiling_sessi
     weight, target = next_session_target(latest, cable_fly, "established", latest)
 
     assert (weight, target) == (15, [cable_fly.rep_min] * 3)
+
+
+def test_lateral_raise_uses_configured_12_to_15_progression_never_17() -> None:
+    _, policies = load_config()
+    policy = next(item for item in policies if item.name == "Lateral Raise (Dumbbell)")
+    first = datetime(2024, 1, 1, tzinfo=UTC)
+    first_success = _ceiling_session(policy.name, first, 8, policy.rep_max, weight=12)
+    second_success = _ceiling_session(
+        policy.name, first + timedelta(days=3), 8, policy.rep_max, weight=12
+    )
+
+    first_weight, first_target = next_session_target(
+        first_success, policy, "established", first_success
+    )
+    records = first_success + second_success
+    next_weight, target = next_session_target(second_success, policy, "established", records)
+    recommendation = recommend_exercise(records, policy)
+
+    assert (first_weight, first_target) == (12, [policy.rep_max] * policy.sets)
+    assert (next_weight, target) == (15, [policy.rep_min] * policy.sets)
+    assert recommendation.weight == 15
+    assert recommendation.weight != 17
+
+
+def test_available_weight_is_rejected_when_percentage_jump_is_too_large() -> None:
+    policy = ExercisePolicy(
+        name="Dumbbell Raise",
+        aliases=(),
+        sets=3,
+        rep_min=8,
+        rep_max=10,
+        increment=5,
+        available_weights=(10, 20),
+        max_increase_percent=25,
+    )
+    started_at = datetime(2024, 1, 1, tzinfo=UTC)
+    latest = _ceiling_session(
+        policy.name, started_at + timedelta(days=3), 8, policy.rep_max, weight=10
+    )
+    records = _ceiling_session(policy.name, started_at, 8, policy.rep_max, weight=10) + latest
+
+    weight, target = next_session_target(latest, policy, "established", records)
+    recommendation = recommend_exercise(records, policy)
+
+    assert (weight, target) == (10, [policy.rep_max] * policy.sets)
+    assert recommendation.action is Action.HOLD_WEIGHT
+    assert "no reasonable configured weight increase" in recommendation.message
+
+
+def test_equipment_defaults_and_exercise_weight_override(tmp_path: Path) -> None:
+    config = tmp_path / "equipment.toml"
+    config.write_text(
+        """[defaults.global]
+sets = 3
+min_reps = 8
+max_reps = 10
+increment_lbs = 5
+[defaults.equipment.dumbbell]
+increment_lbs = 5
+available_weights_lbs = [10, 15, 20]
+max_increase_percent = 50
+[defaults.equipment.cable]
+increment_lbs = 10
+[exercises."Dumbbell Press"]
+equipment = "dumbbell"
+[exercises."Dumbbell Raise"]
+equipment = "dumbbell"
+available_weights_lbs = [8, 10, 12, 15]
+max_increase_percent = 25
+[exercises."Cable Row"]
+equipment = "cable"
+""",
+        encoding="utf-8",
+    )
+
+    _, policies = load_config(config)
+    press, raise_policy, row = policies
+
+    assert press.available_weights == (10, 15, 20)
+    assert raise_policy.available_weights == (8, 10, 12, 15)
+    assert raise_policy.max_increase_percent == 25
+    assert row.increment == 10
+    assert row.available_weights == ()
 
 
 def test_config_resolution_and_validation(tmp_path: Path) -> None:

@@ -16,6 +16,11 @@ max_reps = 10
 min_reps = 8
 max_reps = 12
 
+[defaults.equipment.dumbbell]
+increment_lbs = 5
+available_weights_lbs = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100]
+max_increase_percent = 25
+
 [routines]
 names = ["Strength A", "Strength B", "Bodyweight Circuit"]
 
@@ -38,6 +43,7 @@ supersets = [{ exercises = ["Push Up", "Pull Up"], rest_seconds = [90, 120] }]
 display_name = "Bench Press"
 aliases = ["DB Bench", "Dumbbell Bench Press", "Bench Press (Dumbbell)"]
 category = "compound"
+equipment = "dumbbell"
 increment_lbs = 5
 
 [exercises."Seated Cable Row - V Grip (Cable)"]
@@ -58,6 +64,7 @@ increment_lbs = 5
 display_name = "Incline DB Bench"
 aliases = ["Incline DB Bench", "Incline Bench Press (Dumbbell)"]
 category = "compound"
+equipment = "dumbbell"
 
 [exercises."Lat Pulldown"]
 display_name = "Lat Pulldown"
@@ -75,14 +82,17 @@ category = "isolation"
 display_name = "Lateral Raise"
 aliases = ["Lateral Raise", "Dumbbell Lateral Raise"]
 category = "isolation"
+equipment = "dumbbell"
 min_reps = 8
 max_reps = 10
+available_weights_lbs = [5, 8, 10, 12, 15, 20, 25, 30]
 large_increment = true
 
 [exercises."Bicep Curl (Dumbbell)"]
 display_name = "DB Curl"
 aliases = ["DB Curl", "Dumbbell Curl", "Alternating Dumbbell Curl"]
 category = "isolation"
+equipment = "dumbbell"
 
 [exercises."Triceps Pushdown"]
 display_name = "Triceps Pushdown"
@@ -98,11 +108,13 @@ category = "isolation"
 display_name = "Hammer Curl"
 aliases = ["Hammer Curl (Dumbbell)", "Hammer Curl"]
 category = "isolation"
+equipment = "dumbbell"
 
 [exercises."Skullcrusher (Dumbbell)"]
 display_name = "DB Skullcrusher"
 aliases = ["Skullcrusher (Dumbbell)", "Dumbbell Skullcrusher"]
 category = "isolation"
+equipment = "dumbbell"
 
 [exercises."Crunch (Machine)"]
 display_name = "Crunch Machine"

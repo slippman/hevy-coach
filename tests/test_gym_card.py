@@ -13,6 +13,7 @@ from hevy_coach.gym_card import CardItem, CardSet, build_card, freshness_line, r
 from hevy_coach.importer import import_csv
 from hevy_coach.models import SetRecord
 from hevy_coach.query import records_for_workout
+from hevy_coach.routine_sync import RoutineComparison, RoutineDifference
 from hevy_coach.selector import choose_workout
 from hevy_coach.storage import database
 
@@ -224,6 +225,109 @@ def test_json_conflicts_and_deterministic_format(tmp_path: Path) -> None:
     assert conflict.exit_code != 0 and "cannot be combined" in conflict.output
     assert first.output == second.output
     assert first.output.endswith("\n") and not first.output.endswith("\n\n")
+
+
+@patch("hevy_coach.cli.compare_routine")
+@patch("hevy_coach.cli.HevyAPI")
+def test_gym_card_reports_hevy_differences_without_writing(
+    mock_api, mock_compare, tmp_path: Path
+) -> None:
+    db = tmp_path / "hevy.db"
+    _seed(db)
+    mock_compare.return_value = RoutineComparison(
+        "routine-1",
+        "Strength A",
+        (RoutineDifference("Bench Press", "45×10×3", "50×8×3"),),
+        {"title": "Strength A", "exercises": []},
+    )
+
+    result = CliRunner().invoke(
+        main,
+        ["gym-card", "--workout", "Strength A", "--db", str(db)],
+        env={"HEVY_API_KEY": "top-secret"},
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Hevy routine differs from this gym card" in result.stderr
+    assert "Bench Press: 45×10×3 → 50×8×3" in result.stderr
+    mock_api.return_value.update_routine.assert_not_called()
+
+    structured = CliRunner().invoke(
+        main,
+        ["gym-card", "--workout", "Strength A", "--json", "--db", str(db)],
+        env={"HEVY_API_KEY": "top-secret"},
+    )
+    payload = json.loads(structured.stdout)
+    assert payload["hevy_routine"]["matches_gym_card"] is False
+    assert payload["hevy_routine"]["differences"][0]["exercise"] == "Bench Press"
+
+
+@patch("hevy_coach.cli.compare_routine")
+@patch("hevy_coach.cli.HevyAPI")
+def test_update_hevy_requires_confirmation_and_updates_only_after_yes(
+    mock_api, mock_compare, tmp_path: Path
+) -> None:
+    db = tmp_path / "hevy.db"
+    _seed(db)
+    payload = {"title": "Strength A", "exercises": []}
+    mock_compare.return_value = RoutineComparison(
+        "routine-1",
+        "Strength A",
+        (RoutineDifference("Bench Press", "45×10×3", "50×8×3"),),
+        payload,
+    )
+    runner = CliRunner()
+
+    declined = runner.invoke(
+        main,
+        ["gym-card", "--workout", "Strength A", "--update-hevy", "--db", str(db)],
+        input="n\n",
+        env={"HEVY_API_KEY": "top-secret"},
+    )
+    assert declined.exit_code == 0, declined.output
+    assert "HEVY UPDATE PREVIEW" in declined.stderr
+    assert "No changes have been made yet." in declined.stderr
+    assert "Hevy routine was not changed" in declined.stderr
+    mock_api.return_value.update_routine.assert_not_called()
+
+    approved = runner.invoke(
+        main,
+        ["gym-card", "--workout", "Strength A", "--update-hevy", "--db", str(db)],
+        input="y\n",
+        env={"HEVY_API_KEY": "top-secret"},
+    )
+    assert approved.exit_code == 0, approved.output
+    assert 'Updated "Strength A" in Hevy.' in approved.stderr
+    mock_api.return_value.update_routine.assert_called_once_with("routine-1", payload)
+
+
+def test_update_hevy_requires_api_key_and_conflicts_with_json(tmp_path: Path) -> None:
+    db = tmp_path / "hevy.db"
+    _seed(db)
+    runner = CliRunner()
+
+    missing = runner.invoke(
+        main,
+        ["gym-card", "--workout", "Strength A", "--update-hevy", "--db", str(db)],
+        env={"HEVY_API_KEY": ""},
+    )
+    conflict = runner.invoke(
+        main,
+        [
+            "gym-card",
+            "--workout",
+            "Strength A",
+            "--update-hevy",
+            "--json",
+            "--db",
+            str(db),
+        ],
+    )
+
+    assert missing.exit_code == 1
+    assert "HEVY_API_KEY is not set" in missing.output
+    assert conflict.exit_code == 2
+    assert "cannot be combined" in conflict.output
 
 
 def test_explained_card_groups_similar_decisions_above_one_compact_table() -> None:

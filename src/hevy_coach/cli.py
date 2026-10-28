@@ -45,6 +45,7 @@ from .query import (
     workout_titles,
     workout_types,
 )
+from .routine_sync import RoutineComparison, compare_routine, comparison_json
 from .selector import choose_workout
 from .storage import DEFAULT_DB_PATH, database
 from .time_utils import as_local, as_utc, local_date, timezone_name
@@ -248,6 +249,11 @@ def _choose_workout(titles: list[str], requested: str | None, json_output: bool 
 )
 @click.option("--json", "as_json", is_flag=True, help="emit structured JSON")
 @click.option("--explain", is_flag=True, help="show why each prescription was chosen")
+@click.option(
+    "--update-hevy",
+    is_flag=True,
+    help="after approval, update the saved Hevy routine to match the card",
+)
 @click.option("--config", type=click.Path(exists=True, path_type=Path), default=None)
 @_db_option
 def gym_card(
@@ -258,6 +264,7 @@ def gym_card(
     no_clipboard: bool,
     as_json: bool,
     explain: bool,
+    update_hevy: bool,
     config: Path | None,
     db: Path,
 ) -> None:
@@ -266,6 +273,8 @@ def gym_card(
         raise click.UsageError(
             "--clipboard cannot be combined with --stdout, --json, or --no-clipboard."
         )
+    if update_hevy and as_json:
+        raise click.UsageError("--update-hevy cannot be combined with --json.")
     config = _config_for_database(config, db)
     _, policies = load_config(config)
     routines = load_routine_policies(config)
@@ -310,6 +319,23 @@ def gym_card(
         last_sync is not None and timedelta(0) <= now_utc - as_utc(last_sync) <= timedelta(hours=24)
     )
     history_may_be_stale = stale and not sync_fresh
+    api_key = os.environ.get("HEVY_API_KEY", "").strip()
+    if update_hevy and not api_key:
+        raise click.ClickException(
+            "HEVY_API_KEY is not set; it is required to update a saved Hevy routine."
+        )
+    if update_hevy and routine is None:
+        raise click.ClickException("Only a configured routine can be updated in Hevy.")
+    comparison: RoutineComparison | None = None
+    api: HevyAPI | None = None
+    if api_key and routine is not None:
+        api = HevyAPI(api_key)
+        try:
+            comparison = compare_routine(api, routine, items, policies)
+        except HevyAPIError as error:
+            if update_hevy:
+                raise click.ClickException(str(error)) from error
+            click.echo(f"Could not compare the saved Hevy routine: {error}", err=True)
     rendered = render_card(
         title,
         items,
@@ -326,6 +352,7 @@ def gym_card(
         payload["database_sync_fresh"] = sync_fresh
         payload["history_may_be_stale"] = history_may_be_stale
         payload["source_workout_stale"] = history_may_be_stale
+        payload["hevy_routine"] = comparison_json(comparison) if comparison else None
         click.echo(json.dumps(payload, indent=2))
     elif copy_to_clipboard:
         try:
@@ -342,6 +369,39 @@ def gym_card(
         )
     if history_may_be_stale and not as_json:
         click.echo("Some exercise history may be stale.", err=True)
+    if comparison is not None and not as_json:
+        if comparison.differences:
+            heading = (
+                "HEVY UPDATE PREVIEW" if update_hevy else "Hevy routine differs from this gym card:"
+            )
+            click.echo(heading, err=True)
+            for difference in comparison.differences:
+                note = " (not changed automatically)" if not difference.updatable else ""
+                click.echo(
+                    f"- {difference.exercise}: {difference.current} → "
+                    f"{difference.recommended}{note}",
+                    err=True,
+                )
+            if update_hevy:
+                click.echo("No changes have been made yet.", err=True)
+        else:
+            click.echo("Hevy routine already matches this gym card.", err=True)
+    if update_hevy and comparison is not None:
+        if not comparison.has_updates:
+            click.echo("No Hevy routine settings need updating.", err=True)
+        elif click.confirm(
+            f'Update the saved Hevy routine "{comparison.routine_title}"?',
+            default=False,
+            err=True,
+        ):
+            assert api is not None
+            try:
+                api.update_routine(comparison.routine_id, comparison.update_payload)
+            except HevyAPIError as error:
+                raise click.ClickException(str(error)) from error
+            click.echo(f'Updated "{comparison.routine_title}" in Hevy.', err=True)
+        else:
+            click.echo("Hevy routine was not changed.", err=True)
 
 
 def _show_exercise_history(exercise: str, limit: int, db: Path) -> None:

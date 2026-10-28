@@ -30,6 +30,12 @@ class CardItem:
     last_rpe: float | None = None
     rep_min: int | None = None
     rep_max: int | None = None
+    canonical_exercise: str = ""
+    warmup_set_count: int = 0
+
+    @property
+    def warmup_count(self) -> int:
+        return self.warmup_set_count or int(bool(self.warmup))
 
 
 @dataclass(frozen=True)
@@ -152,12 +158,21 @@ def build_card(
             continue
         ramp_up = [item for item in matches if item not in selected]
         warmup = None
-        warmup_set = None
-        if warmup_set_count and ramp_up:
-            first = ramp_up[0]
-            if first.weight is not None and first.reps is not None:
-                warmup = f"{first.weight:g} lb × {first.reps}"
-                warmup_set = CardSet(1, first.weight, first.reps)
+        warmup_sets = tuple(
+            CardSet(number, record.weight, record.reps, record.duration_seconds)
+            for number, record in enumerate(ramp_up, start=1)
+        )
+        if warmup_sets:
+            warmup = ", ".join(
+                f"{record.weight:g} lb × {record.reps}"
+                if record.weight is not None and record.reps is not None
+                else f"{record.duration_seconds}s"
+                if record.duration_seconds is not None
+                else f"{record.reps} reps"
+                if record.reps is not None
+                else "unprescribed"
+                for record in warmup_sets
+            )
         decision = exercise_decision(records, policy, warmup_set_count)
         if policy.progression == "duration":
             weight = decision.target_weight
@@ -173,7 +188,7 @@ def build_card(
                 if target_reps and len(set(target_reps)) == 1
                 else "/".join(str(rep) for rep in target_reps)
             )
-        working_set_offset = 1 if warmup_set else 0
+        working_set_offset = len(warmup_sets)
         planned_working_sets = (
             tuple(
                 CardSet(number + working_set_offset, None, None, duration)
@@ -191,7 +206,7 @@ def build_card(
                 weight,
                 prescription,
                 warmup,
-                ((warmup_set,) if warmup_set else ()) + planned_working_sets,
+                warmup_sets + planned_working_sets,
                 history_status,
                 local_date(max(item.started_at for item in matches)),
                 policy.progression,
@@ -204,6 +219,8 @@ def build_card(
                 decision.last_rpe,
                 decision.rep_min,
                 decision.rep_max,
+                canonical,
+                len(warmup_sets),
             )
         )
     display = routine.display_title if routine else title
@@ -274,7 +291,7 @@ def _compact_last(item: CardItem) -> str:
 
 
 def _compact_target(item: CardItem) -> str:
-    working = item.planned_sets[1:] if item.warmup else item.planned_sets
+    working = item.planned_sets[item.warmup_count :]
     if item.progression == "duration":
         values = tuple(item.duration_seconds or 0 for item in working)
         return _compact_values(values, "s")
@@ -377,10 +394,17 @@ def _workout_table(items: list[CardItem]) -> str:
     rows = []
     for item in items:
         warmup = "—"
-        if item.warmup and item.planned_sets:
-            first = item.planned_sets[0]
-            if first.weight is not None and first.reps is not None:
-                warmup = f"{first.weight:g}×{first.reps}"
+        if item.warmup_count and item.planned_sets:
+            warmup = ", ".join(
+                f"{planned.weight:g}×{planned.reps}"
+                if planned.weight is not None and planned.reps is not None
+                else f"{planned.duration_seconds}s"
+                if planned.duration_seconds is not None
+                else f"{planned.reps} reps"
+                if planned.reps is not None
+                else "—"
+                for planned in item.planned_sets[: item.warmup_count]
+            )
         rows.append((item.exercise, warmup, _compact_target(item)))
     exercise_width = max(len("Exercise"), *(len(row[0]) for row in rows))
     warmup_width = max(len("Warm-up"), *(len(row[1]) for row in rows))

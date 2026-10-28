@@ -64,6 +64,9 @@ class ExercisePolicy:
     duration_min_seconds: int | None = None
     duration_max_seconds: int | None = None
     duration_increment_seconds: int | None = None
+    equipment: str | None = None
+    available_weights: tuple[float, ...] = ()
+    max_increase_percent: float | None = None
 
 
 @dataclass(frozen=True)
