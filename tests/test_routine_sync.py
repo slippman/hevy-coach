@@ -1,5 +1,6 @@
 import io
 import json
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
@@ -297,6 +298,95 @@ def test_explicit_warmups_are_kept_without_configured_count() -> None:
 
     assert items[0].warmup_count == 2
     assert [planned.weight for planned in items[0].planned_sets] == [20, 40, 60, 60, 60]
+
+
+@pytest.mark.parametrize(
+    ("progression", "configured_sets", "logged_sets", "warmups"),
+    [
+        ("weighted_reps", 3, 1, 2),
+        ("weighted_reps", 4, 3, 1),
+        ("bodyweight_reps", 3, 2, 0),
+        ("duration", 3, 1, 0),
+    ],
+)
+def test_incomplete_session_cannot_shorten_saved_routine(
+    progression, configured_sets, logged_sets, warmups
+) -> None:
+    policy = replace(
+        _policy("Movement"),
+        progression=progression,
+        duration_min_seconds=30,
+        duration_max_seconds=60,
+        duration_increment_seconds=5,
+    )
+    routine = RoutinePolicy(
+        "Strength A",
+        "Strength A",
+        (policy.name,),
+        warmup_set_counts=((policy.name, warmups),),
+        working_set_counts=((policy.name, configured_sets),),
+    )
+    started = datetime(2026, 1, 1, tzinfo=UTC)
+    weight = 60 if progression == "weighted_reps" else None
+    reps = None if progression == "duration" else 8
+    duration = 30 if progression == "duration" else None
+    records = [
+        SetRecord(
+            routine.title,
+            started,
+            policy.name,
+            index,
+            "warmup" if index < warmups else "normal",
+            20 if index < warmups else weight,
+            8 if index < warmups else reps,
+            8,
+            duration_seconds=None if index < warmups else duration,
+        )
+        for index in range(warmups + logged_sets)
+    ]
+    saved_sets = [
+        *[_set(20, 8, set_type="warmup") for _ in range(warmups)],
+        *[_set(weight, reps, duration) for _ in range(configured_sets)],
+    ]
+    api = FakeAPI(_routine(_exercise(policy.name, saved_sets)))
+    _, items = build_card(routine, routine.title, records, [policy])
+
+    comparison = compare_routine(api, routine, items, [policy])
+
+    assert not comparison.has_updates
+    assert len(comparison.differences) == 1
+    assert comparison.differences[0].updatable is False
+    assert f"configuration requires {configured_sets}" in comparison.differences[0].recommended
+    assert comparison.update_payload["exercises"][0]["sets"] == saved_sets
+
+
+def test_full_exercise_can_update_while_incomplete_exercise_is_preserved() -> None:
+    policies = [_policy("Movement A"), _policy("Movement B")]
+    routine = RoutinePolicy("Strength A", "Strength A", tuple(item.name for item in policies))
+    saved_sets = [_set(40, 8) for _ in range(3)]
+    api = FakeAPI(
+        _routine(
+            _exercise("Movement A", saved_sets),
+            _exercise("Movement B", saved_sets),
+        )
+    )
+    items = [
+        CardItem(
+            policy.name,
+            40,
+            "",
+            planned_sets=tuple(CardSet(index, 40, 9) for index in range(1, count + 1)),
+            canonical_exercise=policy.name,
+        )
+        for policy, count in zip(policies, (1, 3), strict=True)
+    ]
+
+    comparison = compare_routine(api, routine, items, policies)
+
+    assert comparison.has_updates
+    assert [difference.updatable for difference in comparison.differences] == [False, True]
+    assert comparison.update_payload["exercises"][0]["sets"] == saved_sets
+    assert [item["reps"] for item in comparison.update_payload["exercises"][1]["sets"]] == [9] * 3
 
 
 def test_preview_compacts_warmup_and_uneven_working_sets() -> None:

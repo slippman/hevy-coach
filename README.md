@@ -150,6 +150,8 @@ returns that routine set as `normal`; that label difference alone is not treated
 the saved set type is preserved. `--update-hevy` cannot be combined with `--json`.
 When an exercise has several configured or explicitly logged warm-up sets, the card lists them all
 in the Warm-up column and keeps them in the proposed Hevy update.
+If a card has fewer working sets than configured, that exercise is flagged for review and its saved
+sets are kept unchanged, even when other exercises in the routine are approved for updating.
 
 Cards use only the selected workout's latest session, retain the configured exercise order,
 and include warm-ups only when Hevy labels them or the routine config explicitly provides a

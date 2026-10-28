@@ -21,6 +21,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- An incomplete session can no longer shorten a saved Hevy routine when you approve an update.
+  Exercises without the configured working-set count are flagged and left unchanged.
 - Gym cards and approved routine updates keep every configured or explicitly logged warm-up set,
   so a routine with several warm-ups no longer loses all but the first.
 - Weight progressions can now follow equipment-specific or exercise-specific available loads, and

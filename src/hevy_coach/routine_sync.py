@@ -207,14 +207,25 @@ def compare_routine(
                 target["type"] = current[index]["type"]
         if not _sets_match(current, desired):
             warmup_count = item.warmup_count
+            working_count = len(desired) - warmup_count
+            expected_count = configured_routine.working_set_count(policy.name, policy.sets)
+            updatable = working_count == expected_count
+            recommended = _compact_sets(desired, warmup_count=warmup_count)
+            if not updatable:
+                recommended += (
+                    f" (target has {working_count} working sets; configuration requires "
+                    f"{expected_count}; keeping saved exercise unchanged)"
+                )
             differences.append(
                 RoutineDifference(
                     item.exercise,
                     _compact_sets(current, warmup_count=warmup_count),
-                    _compact_sets(desired, warmup_count=warmup_count),
+                    recommended,
+                    updatable=updatable,
                 )
             )
-            output["sets"] = desired
+            if updatable:
+                output["sets"] = desired
 
     for canonical, item in card_by_name.items():
         if canonical not in found and canonical in policy_by_name:
