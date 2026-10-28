@@ -21,6 +21,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Routine updates match saved set types within warm-up and working-set roles. If their warm-up
+  counts disagree, the exercise is flagged and left unchanged rather than relabeling a working set.
 - An incomplete session can no longer shorten a saved Hevy routine when you approve an update.
   Exercises without the configured working-set count are flagged and left unchanged.
 - Gym cards and approved routine updates keep every configured or explicitly logged warm-up set,

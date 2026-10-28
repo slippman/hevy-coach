@@ -189,7 +189,9 @@ def test_hevy_zero_duration_does_not_make_populated_weighted_sets_look_changed()
         item["duration_seconds"] = 0
     api = FakeAPI(_routine(_exercise("Machine Press", sets)))
     policy = _policy("Machine Press")
-    configured = RoutinePolicy("Strength A", "Strength A", (policy.name,))
+    configured = RoutinePolicy(
+        "Strength A", "Strength A", (policy.name,), warmup_set_counts=((policy.name, 1),)
+    )
     item = CardItem(
         "Machine Press",
         70,
@@ -213,7 +215,9 @@ def test_configured_warmup_does_not_create_drift_when_hevy_calls_it_normal() -> 
     sets = [_set(30, 8), *[_set(50, 8) for _ in range(3)]]
     api = FakeAPI(_routine(_exercise("Dumbbell Bench Press", sets)))
     policy = _policy("Bench Press (Dumbbell)", "Dumbbell Bench Press")
-    configured = RoutinePolicy("Strength A", "Strength A", (policy.name,))
+    configured = RoutinePolicy(
+        "Strength A", "Strength A", (policy.name,), warmup_set_counts=((policy.name, 1),)
+    )
     item = CardItem(
         "Bench Press",
         50,
@@ -389,6 +393,78 @@ def test_full_exercise_can_update_while_incomplete_exercise_is_preserved() -> No
     assert [item["reps"] for item in comparison.update_payload["exercises"][1]["sets"]] == [9] * 3
 
 
+@pytest.mark.parametrize(("saved_count", "card_count"), [(2, 1), (1, 2), (2, 0), (0, 2)])
+def test_different_warmup_counts_cannot_relabel_or_delete_working_sets(saved_count, card_count):
+    policy = _policy("Movement")
+    routine = RoutinePolicy(
+        "Strength A",
+        "Strength A",
+        (policy.name,),
+        warmup_set_counts=((policy.name, saved_count),),
+    )
+    saved_sets = [
+        *[_set(20, 8, set_type="warmup") for _ in range(saved_count)],
+        *[_set(40, 8) for _ in range(3)],
+    ]
+    api = FakeAPI(_routine(_exercise(policy.name, saved_sets)))
+    item = CardItem(
+        policy.name,
+        40,
+        "3×9",
+        warmup="warm-ups" if card_count else None,
+        planned_sets=tuple(
+            [CardSet(index + 1, 20, 8) for index in range(card_count)]
+            + [CardSet(card_count + index + 1, 40, 9) for index in range(3)]
+        ),
+        canonical_exercise=policy.name,
+        warmup_set_count=card_count,
+    )
+
+    comparison = compare_routine(api, routine, [item], [policy])
+
+    assert not comparison.has_updates
+    assert comparison.differences[0].updatable is False
+    assert "keeping saved exercise unchanged" in comparison.differences[0].recommended
+    assert comparison.update_payload["exercises"][0]["sets"] == saved_sets
+
+
+def test_set_types_are_matched_within_roles_when_warmups_are_interleaved():
+    policy = _policy("Movement")
+    routine = RoutinePolicy("Strength A", "Strength A", (policy.name,))
+    api = FakeAPI(
+        _routine(
+            _exercise(
+                policy.name,
+                [
+                    _set(40, 8, set_type="failure"),
+                    _set(20, 8, set_type="warmup"),
+                    _set(40, 8),
+                    _set(40, 8, set_type="dropset"),
+                ],
+            )
+        )
+    )
+    item = CardItem(
+        policy.name,
+        40,
+        "3×9",
+        warmup="20 lb × 8",
+        planned_sets=(CardSet(1, 20, 8), CardSet(2, 40, 9), CardSet(3, 40, 9), CardSet(4, 40, 9)),
+        canonical_exercise=policy.name,
+        warmup_set_count=1,
+    )
+
+    comparison = compare_routine(api, routine, [item], [policy])
+
+    assert comparison.has_updates
+    assert [item["type"] for item in comparison.update_payload["exercises"][0]["sets"]] == [
+        "warmup",
+        "failure",
+        "normal",
+        "dropset",
+    ]
+
+
 def test_preview_compacts_warmup_and_uneven_working_sets() -> None:
     api = FakeAPI(
         _routine(
@@ -399,7 +475,9 @@ def test_preview_compacts_warmup_and_uneven_working_sets() -> None:
         )
     )
     policy = _policy("Bench Press (Dumbbell)", "Dumbbell Bench Press")
-    configured = RoutinePolicy("Strength A", "Strength A", (policy.name,))
+    configured = RoutinePolicy(
+        "Strength A", "Strength A", (policy.name,), warmup_set_counts=((policy.name, 1),)
+    )
     item = CardItem(
         "Bench Press",
         50,

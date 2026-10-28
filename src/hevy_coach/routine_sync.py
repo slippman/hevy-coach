@@ -120,6 +120,22 @@ def _sets_match(current: list[dict[str, Any]], desired: list[dict[str, Any]]) ->
     return True
 
 
+def _split_set_roles(
+    sets: list[dict[str, Any]], configured_warmups: int
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Use explicit types, then configured unmarked warm-ups, to separate roles."""
+    warmup_indices = {index for index, item in enumerate(sets) if item.get("type") == "warmup"}
+    unmarked_needed = max(0, configured_warmups - len(warmup_indices))
+    for index in range(len(sets)):
+        if unmarked_needed and index not in warmup_indices:
+            warmup_indices.add(index)
+            unmarked_needed -= 1
+    return (
+        [item for index, item in enumerate(sets) if index in warmup_indices],
+        [item for index, item in enumerate(sets) if index not in warmup_indices],
+    )
+
+
 def _writable_routine(routine: dict[str, Any]) -> dict[str, Any]:
     set_fields = (
         "type",
@@ -202,16 +218,28 @@ def compare_routine(
         current = original.get("sets", [])
         current = current if isinstance(current, list) else []
         desired = _desired_sets(item)
-        for index, target in enumerate(desired):
-            if index < len(current) and current[index].get("type"):
-                target["type"] = current[index]["type"]
-        if not _sets_match(current, desired):
+        configured_warmups = configured_routine.warmup_set_count(policy.name)
+        saved_warmups, saved_working = _split_set_roles(current, configured_warmups)
+        warmups_match = len(saved_warmups) == item.warmup_count
+        if warmups_match:
+            for saved_role, target_role in (
+                (saved_warmups, desired[: item.warmup_count]),
+                (saved_working, desired[item.warmup_count :]),
+            ):
+                for saved_set, target in zip(saved_role, target_role):
+                    target["type"] = saved_set.get("type", target["type"])
+        if not _sets_match(current, desired) or not warmups_match:
             warmup_count = item.warmup_count
             working_count = len(desired) - warmup_count
             expected_count = configured_routine.working_set_count(policy.name, policy.sets)
-            updatable = working_count == expected_count
+            updatable = working_count == expected_count and warmups_match
             recommended = _compact_sets(desired, warmup_count=warmup_count)
-            if not updatable:
+            if not warmups_match:
+                recommended += (
+                    f" (saved routine has {len(saved_warmups)} warm-ups; card has "
+                    f"{warmup_count}; keeping saved exercise unchanged)"
+                )
+            if working_count != expected_count:
                 recommended += (
                     f" (target has {working_count} working sets; configuration requires "
                     f"{expected_count}; keeping saved exercise unchanged)"

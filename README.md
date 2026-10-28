@@ -152,6 +152,8 @@ When an exercise has several configured or explicitly logged warm-up sets, the c
 in the Warm-up column and keeps them in the proposed Hevy update.
 If a card has fewer working sets than configured, that exercise is flagged for review and its saved
 sets are kept unchanged, even when other exercises in the routine are approved for updating.
+Saved set types are matched separately within warm-up and working sets. If the card and saved
+routine have different warm-up counts, that exercise is also flagged and kept unchanged for review.
 
 Cards use only the selected workout's latest session, retain the configured exercise order,
 and include warm-ups only when Hevy labels them or the routine config explicitly provides a
