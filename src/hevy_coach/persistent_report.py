@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import OrderedDict
 from dataclasses import asdict, replace
 
-from .coach import recommend_all, working_sets
+from .coach import coaching_history, shared_exercise_decision, working_sets
 from .models import ExercisePolicy, RoutinePolicy, SetRecord
 from .time_utils import as_local, local_date
 
@@ -35,6 +35,7 @@ def report_payload(
     policies: list[ExercisePolicy],
     history_records: list[SetRecord] | None = None,
     routine: RoutinePolicy | None = None,
+    history_routines: list[RoutinePolicy] | None = None,
 ) -> dict:
     if not records:
         raise ValueError("No imported workouts available; run `hevy-coach import PATH` first.")
@@ -68,14 +69,16 @@ def report_payload(
                 "last_set_rpe": last_rpe,
             }
         )
-    recommendations = [
-        {**asdict(item), "action": item.action.value}
-        for item in recommend_all(
-            history_records or records,
-            effective_policies,
-            dict(routine.warmup_set_counts) if routine else None,
-        )
-    ]
+    source_routines = (
+        history_routines if history_routines is not None else ([routine] if routine else [])
+    )
+    history = coaching_history(
+        history_records if history_records is not None else records, policies, source_routines
+    )
+    recommendations = []
+    for policy in policies:
+        item = shared_exercise_decision(history, policy, routine, source_routines).recommendation
+        recommendations.append({**asdict(item), "action": item.action.value})
     duration = int((first.ended_at - first.started_at).total_seconds()) if first.ended_at else None
     return {
         "workout": {

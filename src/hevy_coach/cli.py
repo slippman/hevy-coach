@@ -152,12 +152,7 @@ def report(latest: bool, clipboard: bool, as_json: bool, config: Path | None, db
         if routine:
             policy_by_name = {policy.name: policy for policy in policies}
             routine_policies = [policy_by_name[name] for name in routine.exercises]
-            matching_titles = [
-                title
-                for title in workout_titles(connection)
-                if resolve_routine(title, [routine]) is not None
-            ]
-            history_records = records_for_workouts(connection, matching_titles)
+            history_records = all_records(connection)
         else:
             latest_names = {record.exercise.casefold() for record in latest_records}
             routine_policies = [
@@ -172,6 +167,7 @@ def report(latest: bool, clipboard: bool, as_json: bool, config: Path | None, db
             routine_policies,
             history_records=history_records,
             routine=routine,
+            history_routines=routines,
         )
     rendered = markdown(payload)
     reports = db.parent / "reports"
@@ -305,7 +301,10 @@ def gym_card(
             else records_for_workout(connection, selected)
         )
         last_sync = latest_api_synced_at(connection)
-    title, items = build_card(routine, selected, records, policies)
+        history_records = all_records(connection)
+    title, items = build_card(
+        routine, selected, records, policies, history_records=history_records, routines=routines
+    )
     if not items:
         raise click.ClickException(f"No configured strength exercises found for {selected!r}.")
     unknown = unknown_routine_exercises(routine, records, policies)
