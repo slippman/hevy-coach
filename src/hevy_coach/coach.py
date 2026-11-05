@@ -519,7 +519,11 @@ def _target_description(
 
 
 def exercise_decision(
-    records: Iterable[SetRecord], policy: ExercisePolicy, warmup_set_count: int = 0
+    records: Iterable[SetRecord],
+    policy: ExercisePolicy,
+    warmup_set_count: int = 0,
+    *,
+    fill_target_sets: bool = False,
 ) -> ExerciseDecision:
     """Return targets and a concise explanation from one recommendation decision."""
     materialized = list(records)
@@ -536,6 +540,12 @@ def exercise_decision(
         )
         reps = tuple(min(policy.rep_max, rep) for rep in target_reps)
         durations = ()
+
+    if fill_target_sets:
+        if reps and len(reps) < policy.sets:
+            reps += (min(reps),) * (policy.sets - len(reps))
+        if durations and len(durations) < policy.sets:
+            durations += (min(durations),) * (policy.sets - len(durations))
 
     last = _last_performance(sets, policy) if sets else "no prior working sets"
     last_sentence = f"Last time you completed {last}."

@@ -323,6 +323,10 @@ including configured exercise aliases. The selected routine still determines whi
 and how many working sets to target. Warm-ups are classified using the routine where the performance
 was logged; another routine's warm-up rules are never applied to those source sets. Reports use the
 same shared history for recommendations while keeping the logged workout details unchanged.
+When a complete source routine prescribes fewer sets, the destination keeps its configured set
+count and uses the lowest calculated rep or duration target for added sets. Incomplete source
+sessions are not padded. Unconfigured cards also use the same latest source for their targets,
+warm-ups, and freshness date.
 
 ## Development
 

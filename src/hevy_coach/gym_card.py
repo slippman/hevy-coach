@@ -7,6 +7,7 @@ from dataclasses import dataclass, replace
 from datetime import date, datetime
 
 from .coach import _matches, coaching_history, exercise_decision, working_sets
+from .config import resolve_routine
 from .models import ExercisePolicy, RoutinePolicy, SetRecord
 from .time_utils import local_date
 
@@ -139,19 +140,7 @@ def build_card(
             continue
         if routine:
             policy = replace(policy, sets=routine.working_set_count(canonical, policy.sets))
-        matches = (
-            _latest_exercise_session(history, policy)
-            if routine
-            else next(
-                (
-                    sets
-                    for name, sets in by_title.items()
-                    if (matched_policy := _policy(name, policies))
-                    and matched_policy.name == canonical
-                ),
-                [],
-            )
-        )
+        matches = _latest_exercise_session(history, policy)
         if not matches:
             continue
         history_status = (
@@ -180,7 +169,23 @@ def build_card(
                 else "unprescribed"
                 for record in warmup_sets
             )
-        decision = exercise_decision(history, policy)
+        source_routine = resolve_routine(
+            matches[0].routine, routines or ([routine] if routine else [])
+        )
+        source_policy = next(item for item in policies if item.name == canonical)
+        source_count = (
+            source_routine.working_set_count(canonical, source_policy.sets)
+            if source_routine
+            else source_policy.sets
+        )
+        complete_shorter_source = bool(
+            routine
+            and source_routine
+            and source_routine != routine
+            and len(selected) >= source_count
+            and source_count < policy.sets
+        )
+        decision = exercise_decision(history, policy, fill_target_sets=complete_shorter_source)
         if policy.progression == "duration":
             weight = decision.target_weight
             target_reps: tuple[int, ...] = ()
