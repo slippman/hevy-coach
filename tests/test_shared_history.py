@@ -7,6 +7,7 @@ import pytest
 from click.testing import CliRunner
 
 from hevy_coach.cli import main
+from hevy_coach.coach import shared_exercise_decision
 from hevy_coach.gym_card import build_card
 from hevy_coach.importer import import_csv
 from hevy_coach.models import ExercisePolicy, RoutinePolicy, SetRecord
@@ -239,3 +240,29 @@ def test_unconfigured_card_uses_same_source_for_targets_warmups_and_date(tmp_pat
     assert item["last_performance"]["weight_lbs"] == 75
     assert item["sets"][0]["weight_lbs"] == 20
     assert [planned["weight_lbs"] for planned in item["sets"][1:]] == [75] * 3
+
+
+@pytest.mark.parametrize("limited", [True, False])
+def test_weighted_uneven_report_target_matches_padded_card(limited):
+    policy = ExercisePolicy("Movement", (), 3, 8, 12, 5)
+    destination = RoutinePolicy(
+        "Strength A", "Strength A", (policy.name,), working_set_counts=((policy.name, 4),)
+    )
+    source = RoutinePolicy("Strength B", "Strength B", (policy.name,))
+    first = datetime(2026, 1, 1, tzinfo=UTC)
+    source_sets = [
+        SetRecord(source.title, first + timedelta(days=2), policy.name, index, "normal", 40, rep, 8)
+        for index, rep in enumerate((8, 9, 10))
+    ]
+    history = (
+        []
+        if limited
+        else [
+            SetRecord(destination.title, first, policy.name, index, "normal", 40, 8, 8)
+            for index in range(4)
+        ]
+    ) + source_sets
+    decision = shared_exercise_decision(history, policy, destination, [destination, source])
+    expected = (8, 9, 10, 8) if limited else (9, 9, 10, 9)
+    assert decision.target_reps == expected
+    assert "/".join(map(str, expected)) in decision.recommendation.message

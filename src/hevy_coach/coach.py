@@ -343,6 +343,8 @@ def recommend_exercise(
     label = _fmt_weight(weight)
     if history_status == "limited":
         _, target_reps = next_session_target(sets, policy, history_status)
+        if fill_target_sets and target_reps:
+            target_reps += [min(target_reps)] * max(0, policy.sets - len(target_reps))
         target = "/".join(str(rep) for rep in target_reps)
         return Recommendation(
             policy.name,
@@ -468,6 +470,8 @@ def recommend_exercise(
     if next_reps and len(set(next_reps)) > 1:
         lowest = min(range(len(next_reps)), key=next_reps.__getitem__)
         next_reps[lowest] = min(policy.rep_max, next_reps[lowest] + 1)
+        if fill_target_sets:
+            next_reps += [min(next_reps)] * max(0, policy.sets - len(next_reps))
         target = "/".join(str(rep) for rep in next_reps)
         message = f"Keep {label} lb; target {target} before increasing."
     elif policy.name == "DB Bench" and reps[0] == policy.rep_min:
