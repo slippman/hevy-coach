@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from dataclasses import replace
 
+from .config import resolve_routine
 from .models import (
     Action,
     DecisionReason,
     ExerciseDecision,
     ExercisePolicy,
     Recommendation,
+    RoutinePolicy,
     SetRecord,
 )
 from .time_utils import local_date
@@ -98,6 +101,27 @@ def working_sets(
     normal = [record for record in records if not record.is_warmup]
     configured_unmarked_warmups = max(0, warmup_set_count - len(explicit_warmups))
     return normal[configured_unmarked_warmups:]
+
+
+def coaching_history(
+    records: list[SetRecord], policies: list[ExercisePolicy], routines: list[RoutinePolicy]
+) -> list[SetRecord]:
+    """Classify each session's warm-ups using its own routine before sharing history."""
+    groups: dict[tuple[str, object, str], list[SetRecord]] = {}
+    for record in records:
+        groups.setdefault((record.routine, record.started_at, record.exercise), []).append(record)
+    normalized: list[SetRecord] = []
+    for (title, _, exercise), session in groups.items():
+        routine = resolve_routine(title, routines)
+        policy = next((item for item in policies if _matches(exercise, item)), None)
+        count = routine.warmup_set_count(policy.name) if routine and policy else 0
+        ordered = sorted(session, key=lambda record: record.set_index)
+        working = working_sets(ordered, warmup_set_count=count)
+        normalized.extend(
+            record if record in working else replace(record, set_type="warmup")
+            for record in ordered
+        )
+    return normalized
 
 
 def _successful_ceiling_session(sets: list[SetRecord], policy: ExercisePolicy) -> bool:

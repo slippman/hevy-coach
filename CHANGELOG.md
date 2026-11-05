@@ -21,6 +21,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Shared exercises now use their latest logged performance across routines. Each routine still
+  keeps its own exercise order and target set counts, and source-session warm-ups stay excluded.
 - Routine updates match saved set types within warm-up and working-set roles. If their warm-up
   counts disagree, the exercise is flagged and left unchanged rather than relabeling a working set.
 - An incomplete session can no longer shorten a saved Hevy routine when you approve an update.

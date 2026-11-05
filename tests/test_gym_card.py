@@ -215,9 +215,10 @@ def test_json_conflicts_and_deterministic_format(tmp_path: Path) -> None:
     payload = json.loads(structured.stdout)
     assert payload["workout"] == "Strength A"
     assert payload["exercises"][0]["reasoning_category"]
+    # A newer performance in another routine now supplies this shared exercise.
     assert payload["exercises"][0]["sets"][0] == {
         "set": 1,
-        "weight_lbs": 20.0,
+        "weight_lbs": 95.0,
         "reps": 10,
         "duration_seconds": None,
     }

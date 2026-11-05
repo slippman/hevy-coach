@@ -155,7 +155,7 @@ sets are kept unchanged, even when other exercises in the routine are approved f
 Saved set types are matched separately within warm-up and working sets. If the card and saved
 routine have different warm-up counts, that exercise is also flagged and kept unchanged for review.
 
-Cards use only the selected workout's latest session, retain the configured exercise order,
+Cards use each configured exercise's latest session across routines, retain the configured exercise order,
 and include warm-ups only when Hevy labels them or the routine config explicitly provides a
 warm-up count. Extra normal sets remain working sets and never rewrite routine configuration. The
 tracked
@@ -317,6 +317,12 @@ routine on one day. A partial session updates progression only for exercises you
 skipped exercises are neither treated as failures nor reset. Gym cards retain the configured
 routine order and use each exercise's most recent logged session, so a partial workout never makes
 previously completed exercises disappear from the next card.
+
+An exercise shared by several routines uses its latest matching performance from any routine,
+including configured exercise aliases. The selected routine still determines which exercises appear
+and how many working sets to target. Warm-ups are classified using the routine where the performance
+was logged; another routine's warm-up rules are never applied to those source sets. Reports use the
+same shared history for recommendations while keeping the logged workout details unchanged.
 
 ## Development
 

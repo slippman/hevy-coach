@@ -6,7 +6,7 @@ from collections import OrderedDict
 from dataclasses import dataclass, replace
 from datetime import date, datetime
 
-from .coach import _matches, exercise_decision, working_sets
+from .coach import _matches, coaching_history, exercise_decision, working_sets
 from .models import ExercisePolicy, RoutinePolicy, SetRecord
 from .time_utils import local_date
 
@@ -96,7 +96,15 @@ def build_card(
     title: str,
     records: list[SetRecord],
     policies: list[ExercisePolicy],
+    *,
+    history_records: list[SetRecord] | None = None,
+    routines: list[RoutinePolicy] | None = None,
 ) -> tuple[str, list[CardItem]]:
+    history = coaching_history(
+        history_records if history_records is not None else records,
+        policies,
+        routines if routines is not None else ([routine] if routine else []),
+    )
     current = latest_session(records)
     by_title = _group(current)
     desired_order = (
@@ -132,7 +140,7 @@ def build_card(
         if routine:
             policy = replace(policy, sets=routine.working_set_count(canonical, policy.sets))
         matches = (
-            _latest_exercise_session(records, policy)
+            _latest_exercise_session(history, policy)
             if routine
             else next(
                 (
@@ -148,12 +156,11 @@ def build_card(
             continue
         history_status = (
             "limited"
-            if len({record.started_at for record in records if _matches(record.exercise, policy)})
+            if len({record.started_at for record in history if _matches(record.exercise, policy)})
             <= 1
             else "established"
         )
-        warmup_set_count = routine.warmup_set_count(canonical) if routine else 0
-        selected = working_sets(matches, policy.sets, warmup_set_count)
+        selected = working_sets(matches, policy.sets)
         if not selected:
             continue
         ramp_up = [item for item in matches if item not in selected]
@@ -173,7 +180,7 @@ def build_card(
                 else "unprescribed"
                 for record in warmup_sets
             )
-        decision = exercise_decision(records, policy, warmup_set_count)
+        decision = exercise_decision(history, policy)
         if policy.progression == "duration":
             weight = decision.target_weight
             target_reps: tuple[int, ...] = ()
