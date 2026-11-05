@@ -10,6 +10,7 @@ from hevy_coach.cli import main
 from hevy_coach.gym_card import build_card
 from hevy_coach.importer import import_csv
 from hevy_coach.models import ExercisePolicy, RoutinePolicy, SetRecord
+from hevy_coach.persistent_report import report_payload
 from hevy_coach.storage import database
 
 
@@ -186,6 +187,23 @@ def test_complete_shorter_source_adapts_to_destination_set_count(progression, lo
         )
     else:
         assert [planned.reps for planned in item.planned_sets] == [9] * len(item.planned_sets)
+
+    partial_workout = [
+        SetRecord(destination.title, first + timedelta(days=5), "Press", 0, "normal", 20, 8, 8)
+    ]
+    report = report_payload(
+        partial_workout,
+        [policy],
+        history_records=history,
+        routine=destination,
+        history_routines=[destination, source],
+    )
+    message = report["recommendations"][0]["message"]
+    target = "/".join(["45" if progression == "duration" else "9"] * len(item.planned_sets))
+    if progression == "duration":
+        assert message == f"Hold for {target} seconds."
+    elif progression == "bodyweight_reps":
+        assert message == f"Bodyweight · {target}."
 
     # A genuinely incomplete session in the selected routine still stays incomplete.
     own_history = history[:4] + [

@@ -6,8 +6,7 @@ from collections import OrderedDict
 from dataclasses import dataclass, replace
 from datetime import date, datetime
 
-from .coach import _matches, coaching_history, exercise_decision, working_sets
-from .config import resolve_routine
+from .coach import _matches, coaching_history, shared_exercise_decision, working_sets
 from .models import ExercisePolicy, RoutinePolicy, SetRecord
 from .time_utils import local_date
 
@@ -169,23 +168,10 @@ def build_card(
                 else "unprescribed"
                 for record in warmup_sets
             )
-        source_routine = resolve_routine(
-            matches[0].routine, routines or ([routine] if routine else [])
-        )
         source_policy = next(item for item in policies if item.name == canonical)
-        source_count = (
-            source_routine.working_set_count(canonical, source_policy.sets)
-            if source_routine
-            else source_policy.sets
+        decision = shared_exercise_decision(
+            history, source_policy, routine, routines or ([routine] if routine else [])
         )
-        complete_shorter_source = bool(
-            routine
-            and source_routine
-            and source_routine != routine
-            and len(selected) >= source_count
-            and source_count < policy.sets
-        )
-        decision = exercise_decision(history, policy, fill_target_sets=complete_shorter_source)
         if policy.progression == "duration":
             weight = decision.target_weight
             target_reps: tuple[int, ...] = ()

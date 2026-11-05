@@ -246,7 +246,11 @@ def next_duration_target(
 
 
 def recommend_exercise(
-    records: Iterable[SetRecord], policy: ExercisePolicy, warmup_set_count: int = 0
+    records: Iterable[SetRecord],
+    policy: ExercisePolicy,
+    warmup_set_count: int = 0,
+    *,
+    fill_target_sets: bool = False,
 ) -> Recommendation:
     materialized = list(records)
     sets = _latest_working_sets(materialized, policy, warmup_set_count)
@@ -287,13 +291,15 @@ def recommend_exercise(
 
     if policy.progression == "duration":
         durations = next_duration_target(sets, policy, history_status)
-        target = "/".join(str(value) for value in durations)
         logged_durations = [
             min(policy.duration_max_seconds or value, value)
             for value in (item.duration_seconds for item in sets)
             if value is not None
         ][: policy.sets]
         should_hold = history_status == "limited" or durations == logged_durations
+        if fill_target_sets and durations:
+            durations += [min(durations)] * max(0, policy.sets - len(durations))
+        target = "/".join(str(value) for value in durations)
         return Recommendation(
             policy.name,
             Action.HOLD_WEIGHT if should_hold else Action.ADD_TIME,
@@ -307,6 +313,8 @@ def recommend_exercise(
         _, targets = next_session_target(
             sets, policy, history_status, materialized, warmup_set_count
         )
+        if fill_target_sets and targets:
+            targets += [min(targets)] * max(0, policy.sets - len(targets))
         target = "/".join(str(rep) for rep in targets)
         at_ceiling = len(reps) >= policy.sets and all(
             rep >= policy.rep_max for rep in reps[: policy.sets]
@@ -529,7 +537,9 @@ def exercise_decision(
     materialized = list(records)
     sets = _latest_working_sets(materialized, policy, warmup_set_count)
     history_status = "limited" if _session_count(materialized, policy) <= 1 else "established"
-    recommendation = recommend_exercise(materialized, policy, warmup_set_count)
+    recommendation = recommend_exercise(
+        materialized, policy, warmup_set_count, fill_target_sets=fill_target_sets
+    )
     if policy.progression == "duration":
         durations = tuple(next_duration_target(sets, policy, history_status))
         weight = None
@@ -611,6 +621,31 @@ def exercise_decision(
         rep_min=policy.rep_min,
         rep_max=policy.rep_max,
     )
+
+
+def shared_exercise_decision(
+    history: list[SetRecord],
+    policy: ExercisePolicy,
+    routine: RoutinePolicy | None,
+    routines: list[RoutinePolicy],
+) -> ExerciseDecision:
+    """Apply destination volume to a complete shorter source session for every view."""
+    effective = (
+        replace(policy, sets=routine.working_set_count(policy.name, policy.sets))
+        if routine
+        else policy
+    )
+    latest = _latest_working_sets(history, effective)
+    source = resolve_routine(latest[0].routine, routines) if latest else None
+    source_count = source.working_set_count(policy.name, policy.sets) if source else policy.sets
+    fill = bool(
+        routine
+        and source
+        and source != routine
+        and len(latest) >= source_count
+        and source_count < effective.sets
+    )
+    return exercise_decision(history, effective, fill_target_sets=fill)
 
 
 def recommend_all(
