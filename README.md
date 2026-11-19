@@ -189,6 +189,7 @@ uv run hevy-coach workout list
 uv run hevy-coach workout history
 uv run hevy-coach workout history --limit 15
 uv run hevy-coach workout show 42
+uv run hevy-coach workout show 42 --normalize-order
 uv run hevy-coach workout show 2026-08-28 --json
 uv run hevy-coach exercise list
 uv run hevy-coach exercise list --search bench
@@ -202,6 +203,15 @@ logged sets. `workout history` shows individual recent sessions with stable IDs,
 durations, exercise counts, and set counts. Pass an ID from that list to `workout show` for every
 logged set, including warm-up/working classification, RPE, distance, duration, and any superset
 identifier.
+Workout details default to the exercise order stored in the Hevy export or API workout, with notes
+for exercises whose relative order differs from the current local routine configuration. Use
+`--normalize-order` to display the configured order instead; unconfigured exercises follow at the
+end, and logged positions are retained. Missing exercises in a partial session do not count as
+order changes. JSON includes the displayed order, logged/routine positions, and per-exercise order
+flags. This is the logged order, not an independent timeline: Hevy does not provide per-exercise
+start times here. Normalizing the display never changes SQLite history or the routine in Hevy.
+A configured routine is required for `--normalize-order`. Gym cards remain next-session plans in
+configured routine order.
 A date or title is also accepted; if it matches more than one session, the command asks you to
 choose in an interactive terminal or prints the matching IDs in scripts.
 
