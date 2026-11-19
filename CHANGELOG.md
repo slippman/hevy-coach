@@ -9,6 +9,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Workout details now flag exercises logged out of the configured order. They keep the logged
+  order by default; use `workout show --normalize-order` to view the expected routine order.
 - Gym cards can now point out when a saved Hevy routine differs from the next-session plan. With
   `--update-hevy`, you can review those differences and approve updating the routine; nothing is
   changed without confirmation.

@@ -49,6 +49,7 @@ from .routine_sync import RoutineComparison, compare_routine, comparison_json
 from .selector import choose_workout
 from .storage import DEFAULT_DB_PATH, database
 from .time_utils import as_local, as_utc, local_date, timezone_name
+from .workout_order import review_order
 
 clipboard = Clipboard()
 
@@ -549,8 +550,13 @@ def _workout_set_payload(item, classification: str) -> dict:
 @workout.command("show")
 @click.argument("identifier")
 @click.option("--json", "as_json", is_flag=True, help="emit structured JSON")
+@click.option(
+    "--normalize-order",
+    is_flag=True,
+    help="display exercises in configured routine order instead of logged order",
+)
 @_db_option
-def workout_show(identifier: str, as_json: bool, db: Path) -> None:
+def workout_show(identifier: str, as_json: bool, normalize_order: bool, db: Path) -> None:
     """Show one stored workout by ID, date, or title."""
     config = _config_for_database(None, db)
     _, policies = load_config(config)
@@ -587,6 +593,8 @@ def workout_show(identifier: str, as_json: bool, db: Path) -> None:
                 raise click.ClickException(f"Multiple workouts match. Use a workout ID: {choices}")
         details = workout_set_details(connection, selected.id)
     routine = resolve_routine(selected.title, routines)
+    if normalize_order and routine is None:
+        raise click.ClickException("No configured routine order is available for this workout.")
     grouped: OrderedDict[tuple[int, str, int | None], list] = OrderedDict()
     for item in details:
         grouped.setdefault((item.exercise_order, item.exercise, item.superset_id), []).append(item)
@@ -599,6 +607,9 @@ def workout_show(identifier: str, as_json: bool, db: Path) -> None:
         classified_groups.append(
             (group, [(item, "working" if id(item) in working_ids else "warm-up") for item in sets])
         )
+    names = [group[1] for group, _ in classified_groups]
+    order = review_order(names, routine, policies)
+    indices = order.normalized_indices if normalize_order else tuple(range(len(names)))
     if as_json:
         click.echo(
             json.dumps(
@@ -607,16 +618,21 @@ def workout_show(identifier: str, as_json: bool, db: Path) -> None:
                     "title": selected.title,
                     "started_at": as_local(selected.started_at).isoformat(),
                     "duration_seconds": selected.duration_seconds,
+                    "exercise_order": "routine" if normalize_order else "logged",
+                    "order_reference": "current_configuration" if routine else None,
                     "exercises": [
                         {
-                            "exercise": exercise,
-                            "superset_id": superset_id,
+                            "exercise": classified_groups[index][0][1],
+                            "superset_id": classified_groups[index][0][2],
+                            "logged_position": index + 1,
+                            "routine_position": order.expected_positions[index],
+                            "out_of_order": order.out_of_order[index],
                             "sets": [
                                 _workout_set_payload(item, classification)
-                                for item, classification in sets
+                                for item, classification in classified_groups[index][1]
                             ],
                         }
-                        for (_, exercise, superset_id), sets in classified_groups
+                        for index in indices
                     ],
                 },
                 indent=2,
@@ -632,8 +648,20 @@ def workout_show(identifier: str, as_json: bool, db: Path) -> None:
         f"When: {as_local(selected.started_at).strftime('%Y-%m-%d %H:%M %Z')}",
         f"Duration: {duration}",
     ]
-    for (_, exercise, superset_id), sets in classified_groups:
+    if normalize_order:
+        blocks.append(
+            "Exercise order: configured routine (unconfigured exercises follow at the end)."
+        )
+    if any(order.out_of_order):
+        changed = ", ".join(name for index, name in enumerate(names) if order.out_of_order[index])
+        blocks.append(f"Order differs from the current routine configuration: {changed}.")
+    for index in indices:
+        (_, exercise, superset_id), sets = classified_groups[index]
         label = exercise + (f" · Superset {superset_id}" if superset_id is not None else "")
+        if order.out_of_order[index]:
+            label += (
+                f" · out of order (logged #{index + 1}; routine #{order.expected_positions[index]})"
+            )
         lines = [label, "SET   TYPE      LOAD / RESULT      RPE"]
         for item, classification in sets:
             if item.distance is not None and item.duration_seconds is not None:
